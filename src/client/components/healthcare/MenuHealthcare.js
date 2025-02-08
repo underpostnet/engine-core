@@ -1,6 +1,6 @@
 import { Account } from '../core/Account.js';
 import { BtnIcon } from '../core/BtnIcon.js';
-import { getId, newInstance, range } from '../core/CommonJs.js';
+import { commonModeratorGuard, getId, newInstance, range } from '../core/CommonJs.js';
 import { Css, ThemeEvents, Themes, darkTheme, dynamicCol } from '../core/Css.js';
 import { EventsUI } from '../core/EventsUI.js';
 import { LogIn } from '../core/LogIn.js';
@@ -24,6 +24,7 @@ import { Scroll } from '../core/Scroll.js';
 import { AppointmentFormHealthcare } from './AppointmentFormHealthCare.js';
 import { HealthcareAppointmentService } from '../../services/healthcare-appointment/healthcare-appointment.service.js';
 import { NotificationManager } from '../core/NotificationManager.js';
+import { HealthcareAppointmentManagement } from '../../services/healthcare-appointment/healthcare-appointment.management.js';
 
 const logger = loggerFactory(import.meta);
 
@@ -159,6 +160,17 @@ const MenuHealthcare = {
             tabHref: `${getProxyPath()}healthcare-appointment`,
             handleContainerClass: 'handle-btn-container',
             tooltipHtml: await Badge.Render(buildBadgeToolTipMenuOption('healthcare-appointment', 'right')),
+          })}
+          ${await BtnIcon.Render({
+            class: 'in wfa main-btn-menu main-btn-healthcare-appointment-management hide',
+            label: renderMenuLabel({
+              icon: html`<i class="fa-solid fa-rectangle-list"></i>`,
+              text: html`<span class="menu-label-text">${Translate.Render('healthcare-appointment-management')}</span>`,
+            }),
+            attrs: `data-id="healthcare-appointment-management"`,
+            tabHref: `${getProxyPath()}healthcare-appointment-management`,
+            handleContainerClass: 'handle-btn-container',
+            tooltipHtml: await Badge.Render(buildBadgeToolTipMenuOption('healthcare-appointment-management')),
           })}
         </div>
       `,
@@ -495,7 +507,29 @@ const MenuHealthcare = {
             });
             Modal.Data['modal-calendar'].onCloseListener['TopRefreshEvent'] = () => {
               Scroll.removeTopRefreshEvent('.main-body-calendar-modal-calendar');
+              delete LogIn.Event['model-appointment-calendar'];
+              delete LogOut.Event['model-appointment-calendar'];
             };
+            const authSwitch = () => {
+              if (!s(`.btn-calendar-panel-${idModal}-add`)) return;
+              if (commonModeratorGuard(ElementsHealthcare.Data.user.main.model.user.role))
+                s(`.btn-calendar-panel-${idModal}-add`).classList.remove('hide');
+              else {
+                s(`.btn-calendar-panel-${idModal}-add`).classList.add('hide');
+              }
+            };
+            LogIn.Event['model-appointment-calendar'] = authSwitch;
+            LogOut.Event['model-appointment-calendar'] = authSwitch;
+            setTimeout(() => {
+              if (s(`.main-body-btn-ui-open`).classList.contains('hide')) s(`.main-body-btn-ui`).click();
+
+              setTimeout(() => {
+                s(`.btn-calendar-panel-modal-calendar-custom0`).click();
+              }, 500);
+              setTimeout(() => {
+                s(`.btn-calendar-panel-modal-calendar-custom0`).click();
+              }, 1500);
+            });
           });
           return await CalendarCore.Render({
             idModal,
@@ -505,6 +539,9 @@ const MenuHealthcare = {
             route,
             hiddenDates,
             parentIdModal: 'modal-calendar',
+            role: {
+              add: () => commonModeratorGuard(ElementsHealthcare.Data.user.main.model.user.role),
+            },
             eventClick: async function (dateData, args) {
               const { status } = await appoimentFormRender(dateData);
               if (status === 'success') {
@@ -526,7 +563,29 @@ const MenuHealthcare = {
     });
 
     EventsUI.onClick(`.main-btn-healthcare-appointment`, () => {
-      appoimentFormRender();
+      s(`.main-btn-calendar`).click();
+      // appoimentFormRender();
+    });
+
+    EventsUI.onClick(`.main-btn-healthcare-appointment-management`, async () => {
+      const { barConfig } = await Themes[Css.currentTheme]();
+      await Modal.Render({
+        id: 'modal-healthcare-appointment-management',
+        route: 'healthcare-appointment-management',
+        barConfig,
+        title: renderViewTitle({
+          icon: html`<i class="fa-solid fa-rectangle-list"></i>`,
+          text: Translate.Render('healthcare-appointment-management'),
+        }),
+        html: async () => await HealthcareAppointmentManagement.RenderTable({ Elements: ElementsHealthcare }),
+        handleType: 'bar',
+        maximize: true,
+        mode: 'view',
+        slideMenu: 'modal-menu',
+        RouterInstance,
+        heightTopBar,
+        heightBottomBar,
+      });
     });
 
     EventsUI.onClick(`.main-btn-nutrition-tips`, async () => {

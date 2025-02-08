@@ -8,6 +8,8 @@ const HealthcareAppointmentSchema = new Schema({
   date: { type: Date },
   patient: {
     userId: { type: Schema.Types.ObjectId, ref: 'User' },
+    companyType: { type: String, enum: ['private', 'public'] },
+    identityDocument: { type: String },
   },
   professional: {
     userId: { type: Schema.Types.ObjectId, ref: 'User' },
@@ -26,6 +28,19 @@ const HealthcareAppointmentDto = {
   select: {
     'appointment-dates': () => {
       return { date: 1, _id: 1, eventSchedulerId: 1 };
+    },
+  },
+  populate: {
+    getUser: () => {
+      return {
+        path: 'patient.userId',
+        select: 'username email phoneNumbers',
+      };
+    },
+    getEventScheduler: () => {
+      return {
+        path: 'eventSchedulerId',
+      };
     },
   },
 };
