@@ -204,6 +204,19 @@ const MenuHealthcare = {
         setTimeout(ThemeEvents['titleRender']);
         return '';
       },
+      slideMenuTopBarFix: async () => {
+        return html` <style>
+            .healthcare-bar-logo {
+              height: 200px;
+              top: -50px;
+            }
+            .slide-menu-top-bar-fix {
+              overflow: hidden;
+            }
+          </style>
+
+          <img class="in healthcare-bar-logo" src="${getProxyPath()}assets/icons/23.png" />`;
+      },
       mode: 'slide-menu',
       RouterInstance,
       heightTopBar,
@@ -239,8 +252,13 @@ const MenuHealthcare = {
             s(`.main-btn-${'record-mood'}`).click();
           });
           ThemeEvents['banner'] = () => {
-            if (darkTheme) s(`.healthcare-banner`).classList.add('negative-color');
-            else s(`.healthcare-banner`).classList.remove('negative-color');
+            if (darkTheme) {
+              s(`.healthcare-banner`).classList.add('negative-color');
+              s(`.healthcare-bar-logo`).classList.add('negative-color');
+            } else {
+              s(`.healthcare-banner`).classList.remove('negative-color');
+              s(`.healthcare-bar-logo`).classList.remove('negative-color');
+            }
           };
           ThemeEvents['banner']();
         });
@@ -265,8 +283,7 @@ const MenuHealthcare = {
           </div>
           <div class="fl home-menu-container">
             <div class="in home-h1-font-container">
-              <img class="in healthcare-banner" src="${getProxyPath()}assets/icons/23.png" />
-              <br />
+              <img class="in healthcare-banner hide" src="${getProxyPath()}assets/icons/23.png" />
               ${Translate.Render('¿')}${Translate.Render('home-getting')}
             </div>
             ${render}
@@ -618,10 +635,128 @@ const MenuHealthcare = {
           text: Translate.Render('record-mood'),
         }),
         html: async () => {
-          let render = 'record mod test';
+          const cellDim = 120;
+          const renderStyle = (wFactorContainer) => {
+            return html`<style>
+              .record-mood-emotion-cell-container {
+                width: ${cellDim * wFactorContainer}px;
+              }
+            </style>`;
+          };
+          setTimeout(() => {
+            Modal.Data['modal-record-mood'].onObserverListener['observer'] = () => {
+              if (s(`.modal-record-mood`).offsetWidth > cellDim * 3.1) {
+                htmls(`.record-mood-emotion-cell-style`, renderStyle(3));
+                return;
+              }
+              htmls(`.record-mood-emotion-cell-style`, renderStyle(2));
+            };
+            Modal.Data['modal-record-mood'].onObserverListener['observer']();
+          });
+          return html` <style>
+              .record-mood-emotion-cell-container {
+                margin: auto;
+              }
+              .record-mood-emotion-cell {
+                width: ${cellDim}px;
+                height: ${cellDim}px;
+              }
+              .record-mood-emotion-cell-img {
+                width: ${cellDim * 0.9}px;
+                height: ${cellDim * 0.9}px;
+                box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+                border-radius: 50%;
+                cursor: pointer;
+                transition: 0.3s;
+              }
+              .record-mood-emotion-cell-img:hover {
+                box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.3), 0 6px 20px 0 rgba(0, 0, 0, 0.35);
+                width: ${cellDim * 0.97}px;
+                height: ${cellDim * 0.97}px;
+              }
+            </style>
+            <div class="record-mood-emotion-cell-style">${renderStyle()}</div>
 
-          return html`${render}`;
+            <div class="in">
+              <br /><br />
+              <div class="in home-h1-font-container">${Translate.Render('record-mood-title')}</div>
+            </div>
+            <div class="fl record-mood-emotion-cell-container">
+              ${range(0, 5)
+                .map((emotionIndex) => {
+                  const btnId = `btn-record-mood-emotion-${emotionIndex + 1}`;
+                  setTimeout(() => {
+                    EventsUI.onClick(`.${btnId}`, async () => {
+                      const { barConfig } = await Themes[Css.currentTheme]();
+                      barConfig.buttons.restore.disabled = true;
+                      barConfig.buttons.minimize.disabled = true;
+
+                      await Modal.Render({
+                        // route: 'record-mood-' + (emotionIndex + 1),
+                        id: `modal-${btnId}`,
+                        barConfig,
+                        title: '',
+                        html: html` <style>
+                            .modal-body-img-${btnId} {
+                              width: 300px;
+                              height: 300px;
+                              box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+                              border-radius: 50%;
+                              transition: 0.3s;
+                            }
+                            .modal-body-img-${btnId}:hover {
+                              box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.3), 0 6px 20px 0 rgba(0, 0, 0, 0.35);
+                            }
+                            .${btnId}-thank-msg-container {
+                              max-width: 300px;
+                              font-size: 30px;
+                              font-family: 'cursive';
+                              text-align: center;
+                            }
+                          </style>
+                          <div class="in modal-body-${btnId}">
+                            <div class="abs center">
+                              <img
+                                class="inl modal-body-img-${btnId}"
+                                src="${getProxyPath()}assets/emotions/${emotionIndex + 1}.gif"
+                              />
+                              <br />
+                              <br />
+                              <div class="inl ${btnId}-thank-msg-container">
+                                ${Translate.Render('record-mood-thank')}
+                              </div>
+                              <br />
+                              <br />
+                              ${await BtnIcon.Render({
+                                label: html`${Translate.Render('add-notes')}`,
+                                class: 'b0-panel-sub-container add-note-btn',
+                              })}
+                            </div>
+                          </div>`,
+                        mode: 'view',
+                        slideMenu: 'modal-menu',
+                        maximize: true,
+                        dragDisabled: true,
+                        observer: true,
+                        RouterInstance,
+                      });
+                      Modal.Data[`modal-${btnId}`].onObserverListener['observer'] = () => {
+                        s(`.modal-body-${btnId}`).style.height = `${s(`.modal-${btnId}`).offsetHeight * 0.95}px`;
+                      };
+                      Modal.Data[`modal-${btnId}`].onObserverListener['observer']();
+                    });
+                  });
+                  return html` <div class="in fll record-mood-emotion-cell ${btnId}">
+                    <img
+                      class="abs center no-drag record-mood-emotion-cell-img"
+                      src="${getProxyPath()}assets/emotions/${emotionIndex + 1}.gif"
+                    />
+                  </div>`;
+                })
+                .join('')}
+            </div>`;
         },
+        observer: true,
         handleType: 'bar',
         maximize: true,
         mode: 'view',
@@ -650,7 +785,7 @@ const MenuHealthcare = {
 
           for (const indexTip of range(0, NutritionalTips.length - 1)) {
             render += html`<div class="in nutrition-tips-panel-container">
-              <div class="in nutrition-tips-panel-sub-container">
+              <div class="in b0-panel-sub-container">
                 <div class="fl">
                   <div class="in fll" style="width: 30%;">
                     <div class="in nutrition-tips-panel-cell">
