@@ -21,6 +21,8 @@ import { CssBymyelectricsDark, CssBymyelectricsLight } from './components/bymyel
 
 const htmlMainBody = async () => {
   const id0DynamicCol = `dynamicCol-0`;
+  const id1DynamicCol = `dynamicCol-1`;
+
   setTimeout(() => {
     Responsive.Event[`landing`] = () => {
       s(`.home-first-screen`).style.height = ` ${window.innerHeight - 100}px`;
@@ -41,6 +43,7 @@ const htmlMainBody = async () => {
       .sub-title {
         font-size: 25px;
         text-align: center;
+        font-weight: bold;
       }
       footer {
         background: #2f5596;
@@ -63,6 +66,31 @@ const htmlMainBody = async () => {
         background-position: center;
         background-repeat: no-repeat;
       }
+      .${id1DynamicCol} {
+        text-align: center;
+      }
+      .sub-title-sec-1 {
+        font-size: 40px;
+        color: #2f5596;
+        font-weight: bold;
+        text-align: center;
+      }
+      .sec-1-sub-container {
+        margin: auto;
+        max-width: 300px;
+      }
+      .sec-1-sub-container-text {
+        font-size: 24px;
+      }
+      .sec-1-icon {
+        font-size: 100px;
+      }
+      .sec-2-sub-container-text {
+        max-width: 68%;
+        padding: 10px;
+        text-align: justify;
+        margin: auto;
+      }
     </style>
     ${borderChar(2, 'black', ['.home-first-screen'])}
     <div class="in home-first-screen" style="height: ${window.innerHeight - 100}px">
@@ -70,18 +98,79 @@ const htmlMainBody = async () => {
         ${Translate.Render('electrical-designers', undefined, { disableTextFormat: true })}
       </div>
     </div>
+    ${dynamicCol({ containerSelector: id1DynamicCol, id: id1DynamicCol, type: 'a-50-b-50' })}
+    <div class="in section-mp landing-container">
+      <div class="fl ${id1DynamicCol}">
+        <div class="in fll ${id1DynamicCol}-col-a">
+          <div class="in sec-1-sub-container">
+            <br /><br />
+            <span class="sub-title-sec-1"
+              ><i class="fas fa-medal sec-1-icon"></i><br /><br />
+              Misión</span
+            >
+            <br />
+            <br />
+            <div class="in sec-1-sub-container-text">
+              Ser el estándar de excelencia en ingeniería eléctrica, liderando la innovación tecnológica y la
+              sostenibilidad, con un firme compromiso con la responsabilidad, la calidad y la satisfacción de nuestros
+              clientes
+            </div>
+          </div>
+        </div>
+        <div class="in fll ${id1DynamicCol}-col-b">
+          <div class="in sec-1-sub-container">
+            <br /><br />
+            <span class="sub-title-sec-1">
+              <i class="far fa-lightbulb sec-1-icon"></i> <br /><br />
+              Visión</span
+            >
+            <br />
+            <br />
+            <div class="in sec-1-sub-container-text">
+              Desarrollar soluciones de ingeniería eléctrica de clase mundial, combinando calidad, innovación y
+              sostenibilidad, para superar las expectativas de nuestros clientes, impulsar el avance tecnológico y
+              fomentar un desarrollo sostenible para la sociedad
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     ${dynamicCol({ containerSelector: id0DynamicCol, id: id0DynamicCol, type: 'a-50-b-50' })}
     <div class="in section-mp landing-container">
-      <div class="fl ${id0DynamicCol}">
+      <br />
+      <div class="in sub-title-sec-1">Nuestros servicios</div>
+      <br />
+      <div class="in sub-title">Proyectos de diseño e ingeniería de detalle</div>
+      <br />
+      <div class="in sec-2-sub-container-text">
+        Ingeniería By My Electrics ofrece soluciones técnicas adaptadas a las necesidades de cada cliente, destacándose
+        en el desarrollo de filosofías de control para alimentadores, partidores con relés inteligentes, VDF, UPS,
+        sistemas de transferencia y diseño de tableros protocolizados y no protocolizados, diseño de planos eléctricos,
+        mecánicos, control, y modelado en AutoCAD. Nuestro enfoque incluye detectar errores, proponer soluciones y
+        garantizar la satisfacción del cliente mediante diseños personalizados en diferentes perspectivas.
+      </div>
+
+      <br />
+      <div class="in sub-title">Desarrollo de Documentación Técnica</div>
+      <br />
+      <div class="in sec-2-sub-container-text">
+        Ingeniería By My Electrics realiza emisión de documentación técnica en formato propio o adaptándonos a los
+        requerimientos específicos de cada cliente para los manuales de instalación, operación y mantención de equipos,
+        realizamos memorias de cálculo asegurando el cumplimiento de normativas técnicas y estándares de la industria
+        siguiendo el Reglamento de instalaciones de consumo de electricidad (RIC) y pliegos técnicos normativos. Además,
+        realizamos traducción de documentación a pedido garantizando la precisión técnica adaptándose a la terminología
+        local e internacional
+      </div>
+      <!--   <div class="fl ${id0DynamicCol}">
         <div class="in fll ${id0DynamicCol}-col-a">
-          <img class="in landing-logo-0" src="${getProxyPath()}assets/social.png" />
+              <img class="in landing-logo-0" src="${getProxyPath()}assets/social.png" />   
         </div>
         <div class="in fll ${id0DynamicCol}-col-b">
           <br /><br />
           <div class="in section-mp">${Translate.Render('description-0')}</div>
           <div class="in section-mp">${Translate.Render('description-1')}</div>
         </div>
-      </div>
+      </div>   -->
       <br />
       <div class="in sub-title">${Translate.Render('our-clients')}</div>
       <br />
