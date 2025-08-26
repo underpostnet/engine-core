@@ -273,7 +273,6 @@ class UnderpostCluster {
         }
         shellExec(`kubectl delete statefulset valkey-service --ignore-not-found`);
         shellExec(`kubectl apply -k ${underpostRoot}/manifests/valkey`);
-        await UnderpostTest.API.statusMonitor('valkey-service', 'Running', 'pods', 1000, 60);
       }
       if (options.full === true || options.mariadb === true) {
         shellExec(
