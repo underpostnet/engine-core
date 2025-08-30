@@ -46,7 +46,6 @@ const htmlMainBody = async () => {
         font-weight: bold;
       }
       footer {
-        background: #2f5596;
         color: white;
         padding: 0 50px 0 50px;
         font-size: 16px;
@@ -71,7 +70,6 @@ const htmlMainBody = async () => {
       }
       .sub-title-sec-1 {
         font-size: 40px;
-        color: #2f5596;
         font-weight: bold;
         text-align: center;
       }
@@ -210,7 +208,6 @@ window.onload = () =>
   Worker.instance({
     router: RouterBymyelectrics,
     render: async () => {
-      localStorage.setItem('_theme', 'bymyelectrics-light');
       await Css.loadThemes([CssBymyelectricsLight, CssBymyelectricsDark]);
       await TranslateCore.Init();
       await TranslateBymyelectrics.Init();
