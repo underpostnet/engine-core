@@ -1,7 +1,19 @@
 import { Account } from '../core/Account.js';
 import { BtnIcon } from '../core/BtnIcon.js';
 import { getId, newInstance } from '../core/CommonJs.js';
-import { Css, ThemeEvents, Themes, borderChar, boxShadow, cssEffect, darkTheme, renderCssAttr } from '../core/Css.js';
+import {
+  Css,
+  ThemeEvents,
+  Themes,
+  borderChar,
+  boxShadow,
+  cssEffect,
+  darkTheme,
+  renderCssAttr,
+  subThemeManager,
+  darkenHex,
+  lightenHex,
+} from '../core/Css.js';
 import { EventsUI } from '../core/EventsUI.js';
 import { LogIn } from '../core/LogIn.js';
 import { LogOut } from '../core/LogOut.js';
@@ -300,17 +312,48 @@ const MenuNexodev = {
       heightTopBar,
       heightBottomBar,
       htmlMainBody: options.htmlMainBody,
-      titleRender: () => {
-        ThemeEvents['titleRender'] = () => {
-          const srcLogo = darkTheme
-            ? `${getProxyPath()}assets/logo/nexodev-white-t.png`
-            : `${getProxyPath()}assets/logo/nexodev-purple-t.png`;
-          htmls('.action-btn-app-icon-render', html`<img class="inl top-bar-app-icon" src="${srcLogo}" />`);
-        };
-        setTimeout(ThemeEvents['titleRender']);
-        return '';
-      },
     });
+
+    ThemeEvents['main-theme-handler'] = () => {
+      const srcLogo = darkTheme
+        ? `${getProxyPath()}assets/logo/nexodev-white-t.png`
+        : `${getProxyPath()}assets/logo/nexodev-purple-t.png`;
+      htmls(
+        '.action-btn-app-icon-render',
+        html`<img class="inl top-bar-app-icon" src="${srcLogo}" /> ${boxShadow({ selector: '.docs-card' })}`,
+      );
+      if (darkTheme) {
+        const backgroundImage = `${getProxyPath()}assets/background/dark-purple.jpg`;
+        htmls(
+          `.style-ssr-background-image`,
+          css`
+            .ssr-background-image {
+              background-image: url('${backgroundImage}');
+            }
+            .docs-card:hover {
+              color: #d4d4d4;
+              background-color: ${darkenHex(subThemeManager.darkColor, 0.75)};
+            }
+          `,
+        );
+      } else {
+        const backgroundImage = `${getProxyPath()}assets/background/white-purple-2.jpg`;
+        htmls(
+          `.style-ssr-background-image`,
+          css`
+            .ssr-background-image {
+              background-image: url('${backgroundImage}');
+            }
+            .docs-card:hover {
+              color: ${subThemeManager.lightColor};
+              background-color: ${lightenHex(subThemeManager.lightColor, 0.8)};
+            }
+          `,
+        );
+      }
+    };
+
+    setTimeout(ThemeEvents['main-theme-handler']);
 
     this.Data[id].sortable = new Sortable(s(`.menu-btn-container-main`), {
       animation: 150,
@@ -716,16 +759,13 @@ const MenuNexodev = {
 
     EventsUI.onClick(`.main-btn-docs`, async () => {
       setTimeout(async () => {
-        setPath(`${getProxyPath()}docs`);
-        setDocTitle({ ...RouterInstance, route: 'docs' });
-        if (s(`.btn-icon-menu-mode-right`).classList.contains('hide')) s(`.btn-icon-menu-mode`).click();
         s(`.btn-icon-menu-back`).classList.remove('hide');
-        htmls(`.nav-title-display-${'modal-menu'}`, html`<i class="fas fa-book"></i> ${Translate.Render('docs')}`);
+
+        htmls(`.nav-title-display-modal-menu`, html`<i class="fas fa-book"></i> ${Translate.Render('docs')}`);
         await Docs.Init({
           idModal: 'modal-docs',
         });
       });
-      s(`.btn-menu-${'modal-menu'}`).click();
 
       const { barConfig } = await Themes[Css.currentTheme]();
       await Modal.Render({
@@ -757,9 +797,9 @@ const MenuNexodev = {
               description: 'Step-by-step tutorials and how-to guides',
             },
             {
-              id: 'examples',
+              id: 'demo',
               icon: 'laptop-code',
-              title: 'Examples',
+              title: 'Demo',
               description: 'Practical examples and code snippets',
             },
             {
@@ -788,16 +828,16 @@ const MenuNexodev = {
               .docs-header {
                 text-align: center;
                 margin-bottom: 3rem;
+                opacity: 0;
+                animation: fadeInUp 0.6s ease-out forwards;
               }
               .docs-header h1 {
                 font-size: 2.5rem;
                 margin: 0 0 1rem;
-                color: var(--text-primary);
                 line-height: 1.2;
               }
               .docs-header p {
                 font-size: 1.2rem;
-                color: var(--text-secondary);
                 max-width: 700px;
                 margin: 0 auto 2rem;
                 line-height: 1.6;
@@ -810,37 +850,22 @@ const MenuNexodev = {
                 padding: 0;
                 list-style: none;
               }
+              .docs-card-container {
+                cursor: pointer;
+                opacity: 0;
+                margin-bottom: 3rem;
+                animation: fadeInUp 0.6s ease-out forwards;
+              }
               .docs-card {
-                background: var(--card-bg);
                 border-radius: 8px;
                 padding: 1.5rem;
-                border: 1px solid var(--border-color);
                 display: flex;
                 flex-direction: column;
                 height: 100%;
                 position: relative;
-                overflow: hidden;
-                transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-                will-change: transform, box-shadow;
+                transition: all 0.3s ease-in-out;
               }
-              .docs-card::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                height: 4px;
-                background: currentColor;
-                opacity: 0.1;
-                transition: opacity 0.2s ease;
-              }
-              .docs-card:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
-              }
-              .docs-card:hover::before {
-                opacity: 0.2;
-              }
+
               .card-icon {
                 font-size: 1.75rem;
                 width: 56px;
@@ -852,28 +877,32 @@ const MenuNexodev = {
                 margin: 0 0 1.25rem;
                 transition: transform 0.2s ease;
               }
-              .docs-card:hover .card-icon {
-                transform: scale(1.1);
-              }
+
               .card-content {
                 flex: 1;
               }
               .card-content h3 {
                 margin: 0 0 0.5rem;
-                color: var(--text-primary);
                 font-size: 1.25rem;
                 font-weight: 600;
               }
               .card-content p {
                 margin: 0;
-                color: var(--text-secondary);
-                line-height: 1.6;
                 font-size: 0.95rem;
+                transition: color 0.3s ease;
               }
-              .docs-card-container {
-                cursor: pointer;
-                margin-bottom: 50px;
-              }
+            </style>
+
+            <style>
+              ${docsData
+                .map(
+                  (_, index) => css`
+                    .docs-card-container:nth-child(${index + 1}) {
+                      animation-delay: ${0.1 * (index + 1)}s;
+                    }
+                  `,
+                )
+                .join('')}
             </style>
 
             <div class="docs-landing">
@@ -897,7 +926,9 @@ const MenuNexodev = {
                     setTimeout(() => {
                       if (s(`.docs-card-container-${item.id}`)) {
                         s(`.docs-card-container-${item.id}`).onclick = () => {
-                          if (item.id.match('api')) {
+                          if (item.id.match('demo')) {
+                            location.href = 'https://underpostnet.github.io/pwa-microservices-template-ghpkg/';
+                          } else if (item.id.match('api')) {
                             if (s(`.btn-docs-api`)) s(`.btn-docs-api`).click();
                           } else {
                             if (s(`.btn-docs-src`)) s(`.btn-docs-src`).click();

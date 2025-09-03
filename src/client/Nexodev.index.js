@@ -16,208 +16,225 @@ import { CssNexodevDark, CssNexodevLight } from './components/nexodev/CssNexodev
 import { Keyboard } from './components/core/Keyboard.js';
 import { NexodevParams } from './components/nexodev/CommonNexodev.js';
 import { Scroll } from './components/core/Scroll.js';
-import { getProxyPath } from './components/core/VanillaJs.js';
-
-// Initialize theme variables
-let currentTheme = darkTheme ? 'dark' : 'light';
-
-// Theme toggle function
-const toggleTheme = () => {
-  currentTheme = currentTheme === 'light' ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', currentTheme);
-  localStorage.setItem('theme', currentTheme);
-  // Trigger theme change event
-  ThemeEvents['lading-handle-theme-event']?.();
-};
-
-// Initialize theme on load
-document.addEventListener('DOMContentLoaded', () => {
-  const savedTheme = localStorage.getItem('theme') || (darkTheme ? 'dark' : 'light');
-  currentTheme = savedTheme;
-  document.documentElement.setAttribute('data-theme', currentTheme);
-
-  // Set initial theme toggle state
-  const themeToggle = document.getElementById('theme-toggle');
-  if (themeToggle) {
-    themeToggle.checked = currentTheme === 'dark';
-  }
-});
-
-// Listen for theme changes from other components
-ThemeEvents['lading-handle-theme-event'] = () => {
-  const root = document.documentElement;
-  const isDark = currentTheme === 'dark';
-
-  // Update CSS variables based on theme
-  if (isDark) {
-    root.style.setProperty('--primary-color', '#5d7ff3');
-    root.style.setProperty('--secondary-color', '#1a1a2e');
-    root.style.setProperty('--text-color', '#f0f0f0');
-    root.style.setProperty('--light-text', '#a0a0a0');
-    root.style.setProperty('--bg-color', '#0f0f1a');
-    root.style.setProperty('--card-bg', '#1a1a2e');
-    root.style.setProperty('--footer-bg', '#0d0d1a');
-  } else {
-    root.style.setProperty('--primary-color', '#4a6ee0');
-    root.style.setProperty('--secondary-color', '#f8f9fa');
-    root.style.setProperty('--text-color', '#333333');
-    root.style.setProperty('--light-text', '#6c757d');
-    root.style.setProperty('--bg-color', '#ffffff');
-    root.style.setProperty('--card-bg', '#ffffff');
-    root.style.setProperty('--footer-bg', '#f8f9fa');
-  }
-};
+import { getProxyPath, s } from './components/core/VanillaJs.js';
+import { EventsUI } from './components/core/EventsUI.js';
 
 const htmlMainBody = async () => {
+  // Add global styles with animations
+  const style = document.createElement('style');
+  style.textContent = css`
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateX(-30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .landing-page {
+      opacity: 0;
+      animation: fadeIn 0.6s ease-out forwards;
+    }
+
+    .hero h1 {
+      animation: fadeInUp 0.8s ease-out 0.2s forwards;
+      opacity: 0;
+    }
+
+    .hero .lead {
+      animation: fadeInUp 0.8s ease-out 0.4s forwards;
+      opacity: 0;
+    }
+
+    .cta-buttons {
+      animation: fadeInUp 0.8s ease-out 0.6s forwards;
+      opacity: 0;
+    }
+
+    .hero-image {
+      animation: slideIn 0.8s ease-out 0.8s forwards;
+      opacity: 0;
+      transform: translateX(30px);
+    }
+
+    .feature-card {
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      opacity: 0;
+      animation: fadeInUp 0.6s ease-out forwards;
+      animation-delay: calc(var(--index) * 0.15s);
+    }
+
+    .feature-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+    }
+
+    .feature-icon {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+      transition: transform 0.3s ease;
+    }
+
+    .feature-card:hover .feature-icon {
+      transform: scale(1.1);
+    }
+
+    .btn {
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn:after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0;
+      height: 0;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      transition: width 0.6s ease, height 0.6s ease;
+    }
+
+    .btn:hover:after {
+      width: 300px;
+      height: 300px;
+      opacity: 0;
+    }
+  `;
+  document.head.appendChild(style);
+
+  setTimeout(() => {
+    EventsUI.onClick('.btn-landing-sign-up', () => {
+      s(`.main-btn-sign-up`).click();
+    });
+
+    EventsUI.onClick('.btn-start-project', () => {
+      s(`.main-btn-sign-up`).click();
+    });
+  });
+
   return html`
     <div class="landing-page">
-      <!-- Theme Toggle -->
-      <div class="theme-toggle-container">
-        <label class="theme-toggle" title="Toggle theme">
-          <input type="checkbox" id="theme-toggle" onchange="toggleTheme()" />
-          <span class="slider">
-            <span class="sun">☀️</span>
-            <span class="moon">🌙</span>
-          </span>
-        </label>
-      </div>
       <!-- Hero Section -->
       <header class="hero">
         <div class="hero-content">
-          <h1>Welcome to Our Platform</h1>
-          <p class="lead">Experience the next generation of web applications with our powerful PWA solution.</p>
+          <h1>Transform Your Business</h1>
+          <p class="lead">
+            Specializing in custom ERP & CRM development and cloud DevOps services to streamline your operations and
+            drive growth.
+          </p>
           <div class="cta-buttons">
-            <button class="btn btn-primary" id="getStartedBtn">Get Started</button>
-            <button class="btn btn-outline" id="learnMoreBtn">Learn More</button>
+            <button class="btn btn-primary btn-landing-sign-up" id="getStartedBtn">Sign Up</button>
+            <!--  <button class="btn btn-outline" id="learnMoreBtn">Our Services</button> -->
           </div>
         </div>
         <div class="hero-image">
           <img
             class="img-fluid in"
-            style=" top: 50px; margin: auto; width: 80%; max-width: 400px"
-            src="${getProxyPath()}assets/generic/apps2.png"
-            alt="App Illustration"
+            style="top: 50px; margin: auto; width: 80%; max-width: 400px; border-radius: 12px;"
+            src="${getProxyPath()}assets/generic/apps3.png"
+            alt="Business Process Automation"
           />
         </div>
       </header>
 
       <!-- Features Section -->
       <section class="features">
-        <h2>Why Choose Us</h2>
+        <h2 style="opacity: 0; animation: fadeInUp 0.6s ease-out 1s forwards;">Our Core Services</h2>
         <div class="feature-grid">
-          <div class="feature-card">
-            <div class="feature-icon">🚀</div>
-            <h3>Lightning Fast</h3>
-            <p>Optimized for performance and speed.</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">📱</div>
-            <h3>Fully Responsive</h3>
-            <p>Works on all devices and screen sizes.</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🔒</div>
-            <h3>Secure</h3>
-            <p>Your data is always protected.</p>
-          </div>
+          ${['ERP Development', 'CRM Solutions', 'Cloud DevOps']
+            .map(
+              (title, index) => html`
+                <div class="feature-card" style="--index: ${index + 1};">
+                  <div class="feature-icon">${['📊 ', '👥', '☁️'][index]}</div>
+                  <h3>${title}</h3>
+                  <p>
+                    ${[
+                      'Custom enterprise resource planning systems tailored to your business needs and workflows.',
+                      'Comprehensive customer relationship management solutions to enhance engagement and sales.',
+                      'End-to-end cloud infrastructure and DevOps services for seamless deployment and scaling.',
+                    ][index]}
+                  </p>
+                </div>
+              `,
+            )
+            .join('')}
         </div>
       </section>
 
       <!-- CTA Section -->
-      <section class="cta-section">
-        <h2>Ready to Get Started?</h2>
-        <p>Join thousands of satisfied users today.</p>
-        <button class="btn btn-primary btn-lg">Sign Up Now</button>
+      <section class="cta-section" style="opacity: 0; animation: fadeInUp 0.6s ease-out 1.5s forwards;">
+        <h2>Ready to Transform Your Business?</h2>
+        <p>Join businesses that trust Nexodev for their digital transformation journey.</p>
+        <button class="btn btn-primary btn-lg  btn-start-project">Start Your Project</button>
       </section>
 
       <!-- Footer -->
       <footer class="footer">
         <div class="footer-content">
           <div class="footer-section">
-            <h3>About Us</h3>
-            <p>Building the future of web applications with cutting-edge technology and user-centric design.</p>
+            <h3>About Nexodev</h3>
+            <p>
+              Empowering businesses with cutting-edge ERP, CRM, and cloud DevOps solutions to achieve operational
+              excellence.
+            </p>
           </div>
           <div class="footer-section">
             <h3>Quick Links</h3>
             <ul>
-              <li><a href="#features">Features</a></li>
-              <li><a href="#pricing">Pricing</a></li>
-              <li><a href="#contact">Contact</a></li>
-              <li><a href="#blog">Blog</a></li>
+              <li><a href="#services">Our Services</a></li>
+              <li><a href="#solutions">Solutions</a></li>
+              <li><a href="#case-studies">Case Studies</a></li>
+              <li><a href="#contact">Contact Us</a></li>
             </ul>
           </div>
           <div class="footer-section">
             <h3>Connect With Us</h3>
             <div class="social-links">
-              <a href="#" aria-label="Twitter"><i class="fab fa-twitter"></i></a>
-              <a href="#" aria-label="GitHub"><i class="fab fa-github"></i></a>
               <a href="#" aria-label="LinkedIn"><i class="fab fa-linkedin"></i></a>
+              <a href="#" aria-label="GitHub"><i class="fab fa-github"></i></a>
+              <a href="#" aria-label="Twitter"><i class="fab fa-twitter"></i></a>
               <a href="#" aria-label="Discord"><i class="fab fa-discord"></i></a>
             </div>
           </div>
         </div>
         <div class="footer-bottom">
-          <p>&copy; ${new Date().getFullYear()} Your Company. All rights reserved.</p>
-          <div class="footer-links">
-            <a href="#privacy">Privacy Policy</a>
-            <span>•</span>
-            <a href="#terms">Terms of Service</a>
-          </div>
+          <p>&copy; ${new Date().getFullYear()} Nexodev. All rights reserved.</p>
         </div>
       </footer>
     </div>
 
     <style>
       /* Theme variables */
-      :root[data-theme='light'] {
-        --primary-color: #4a6ee0;
-        --secondary-color: #f8f9fa;
-        --text-color: #333333;
-        --light-text: #6c757d;
-        --bg-color: #ffffff;
-        --card-bg: #ffffff;
-        --footer-bg: #f8f9fa;
-        --border-color: #e0e0e0;
-      }
-
-      :root[data-theme='dark'] {
-        --primary-color: #5d7ff3;
-        --secondary-color: #1a1a2e;
-        --text-color: #f0f0f0;
-        --light-text: #a0a0a0;
-        --bg-color: #0f0f1a;
-        --card-bg: #1a1a2e;
-        --footer-bg: #0d0d1a;
-        --border-color: #2a2a3a;
-      }
-
-      :host {
-        --primary-color: #4a6ee0;
-        --secondary-color: #f8f9fa;
-        --text-color: #333;
-        --light-text: #6c757d;
-      }
-
-      /* Theme Toggle Styles */
-      .theme-toggle-container {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 1000;
-      }
-
-      .theme-toggle {
-        position: relative;
-        display: inline-block;
-        width: 60px;
-        height: 30px;
-      }
-
-      .theme-toggle input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-      }
 
       .slider {
         position: absolute;
@@ -226,10 +243,8 @@ const htmlMainBody = async () => {
         left: 0;
         right: 0;
         bottom: 0;
-        background-color: var(--card-bg);
         transition: 0.4s;
         border-radius: 34px;
-        border: 1px solid var(--border-color);
       }
 
       .slider:before {
@@ -239,7 +254,6 @@ const htmlMainBody = async () => {
         width: 22px;
         left: 4px;
         bottom: 3px;
-        background-color: var(--primary-color);
         transition: 0.4s;
         border-radius: 50%;
         z-index: 2;
@@ -278,7 +292,6 @@ const htmlMainBody = async () => {
 
       .landing-page {
         font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-        color: var(--text-color);
         line-height: 1.6;
         max-width: 1200px;
         margin: 0 auto;
@@ -301,12 +314,10 @@ const htmlMainBody = async () => {
       .hero h1 {
         font-size: 2.5rem;
         margin-bottom: 1rem;
-        color: var(--primary-color);
       }
 
       .lead {
         font-size: 1.25rem;
-        color: var(--light-text);
         margin-bottom: 2rem;
       }
 
@@ -321,25 +332,11 @@ const htmlMainBody = async () => {
         padding: 0.75rem 1.5rem;
         border-radius: 5px;
         font-weight: 600;
-        cursor: pointer;
         transition: all 0.3s ease;
-        border: 2px solid transparent;
-      }
-
-      .btn-primary {
-        background-color: var(--primary-color);
-        color: white;
-      }
-
-      .btn-outline {
-        background-color: transparent;
-        border-color: var(--primary-color);
-        color: var(--primary-color);
       }
 
       .btn:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
       }
 
       .features {
@@ -362,9 +359,6 @@ const htmlMainBody = async () => {
       .feature-card {
         padding: 2rem;
         border-radius: 10px;
-        background: var(--card-bg);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-        border: 1px solid var(--border-color);
         transition: transform 0.3s ease;
       }
 
@@ -379,16 +373,12 @@ const htmlMainBody = async () => {
 
       .feature-card h3 {
         margin: 1rem 0;
-        color: var(--primary-color);
       }
 
       /* Footer Styles */
       .footer {
-        background-color: var(--footer-bg);
-        color: var(--text-color);
         padding: 3rem 1rem;
         margin-top: 4rem;
-        border-top: 1px solid var(--border-color);
       }
 
       .footer-content {
@@ -401,20 +391,17 @@ const htmlMainBody = async () => {
       }
 
       .footer-section h3 {
-        color: var(--primary-color);
         margin-bottom: 1.5rem;
         font-size: 1.2rem;
       }
 
       .footer-section p,
       .footer-section a {
-        color: var(--light-text);
         line-height: 1.8;
         transition: color 0.3s ease;
       }
 
       .footer-section a:hover {
-        color: var(--primary-color);
         text-decoration: none;
       }
 
@@ -440,14 +427,11 @@ const htmlMainBody = async () => {
         width: 36px;
         height: 36px;
         border-radius: 50%;
-        background-color: var(--card-bg);
-        color: var(--primary-color);
         transition: all 0.3s ease;
       }
 
       .social-links a:hover {
         background-color: var(--primary-color);
-        color: white;
         transform: translateY(-3px);
       }
 
@@ -455,12 +439,10 @@ const htmlMainBody = async () => {
         max-width: 1200px;
         margin: 2rem auto 0;
         padding-top: 2rem;
-        border-top: 1px solid var(--border-color);
         display: flex;
         flex-wrap: wrap;
         justify-content: space-between;
         align-items: center;
-        color: var(--light-text);
         font-size: 0.9rem;
       }
 
@@ -471,12 +453,10 @@ const htmlMainBody = async () => {
       }
 
       .footer-links a {
-        color: var(--light-text);
         transition: color 0.3s ease;
       }
 
       .footer-links a:hover {
-        color: var(--primary-color);
         text-decoration: none;
       }
 
@@ -495,7 +475,6 @@ const htmlMainBody = async () => {
       .cta-section {
         text-align: center;
         padding: 5rem 1rem;
-        background: linear-gradient(135deg, var(--secondary-color) 0%, var(--card-bg) 100%);
         border-radius: 15px;
         margin: 4rem 0;
       }
