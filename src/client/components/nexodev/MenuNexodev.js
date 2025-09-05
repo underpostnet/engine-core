@@ -620,20 +620,6 @@ const MenuNexodev = {
           text: Translate.Render('calendar'),
         }),
         html: async () => {
-          setTimeout(() => {
-            Scroll.addTopRefreshEvent({
-              id: 'modal-calendar',
-              callback: () => {
-                location.reload();
-              },
-              condition: () => {
-                return s('.main-body-calendar-modal-calendar').scrollTop === 0;
-              },
-            });
-            Modal.Data['modal-calendar'].onCloseListener['TopRefreshEvent'] = () => {
-              Scroll.removeTopRefreshEvent('.main-body-calendar-modal-calendar');
-            };
-          });
           return await CalendarNexodev.Render({
             idModal: 'modal-calendar',
             Elements: ElementsNexodev,
@@ -1115,6 +1101,16 @@ const MenuNexodev = {
 
       Modal.Data['modal-menu'].homeModals.push('modal-test');
     });
+
+    setTimeout(() => {
+      const { removeEvent } = Scroll.setEvent('.main-body', async (payload) => {
+        console.warn('scroll', payload);
+        if (payload.scrollTop > 100) {
+          removeEvent();
+          console.warn('scroll fist event over 100');
+        }
+      });
+    }, 1);
   },
 };
 
