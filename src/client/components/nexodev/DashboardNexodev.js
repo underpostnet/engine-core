@@ -11,7 +11,7 @@ const DashboardNexodev = {
   Render: async function (options = { idModal: '' }) {
     const id = options.idModal;
     const { idModal } = options;
-    this.Tokens[id] = { ...options };
+    this.Tokens[id] = { ...this.Tokens[id], ...options };
     const setRandomWeightScore = () => random(0, 100) / 100;
 
     const rowData = [
@@ -135,27 +135,33 @@ const DashboardNexodev = {
     });
     setTimeout(() => {
       range(0, 3).map(() => {
-        setInterval(() => {
-          const rowNode = AgGrid.grids[`ag-grid-${idModal}`].getDisplayedRowAtIndex(random(0, rowData.length - 1));
-          if (rowNode) rowNode.setDataValue('WeightedScore', setRandomWeightScore());
-        }, random(900, 2000));
+        if (!DashboardNexodev.Tokens[id]._interval_a) {
+          DashboardNexodev.Tokens[id]._interval_a = setInterval(() => {
+            const rowNode = AgGrid.grids[`ag-grid-${idModal}`].getDisplayedRowAtIndex(random(0, rowData.length - 1));
+            if (rowNode) rowNode.setDataValue('WeightedScore', setRandomWeightScore());
+          }, random(900, 2000));
+        }
       });
 
       range(0, 3).map(() => {
-        setInterval(() => {
-          const rowNode = AgGrid.grids[`ag-grid-${idModal}`].getDisplayedRowAtIndex(random(0, rowData.length - 1));
-          if (rowNode) rowNode.setDataValue('MonthlyIncome', random(1000, 6000));
-        }, random(900, 2000));
+        if (!DashboardNexodev.Tokens[id]._interval_b) {
+          DashboardNexodev.Tokens[id]._interval_b = setInterval(() => {
+            const rowNode = AgGrid.grids[`ag-grid-${idModal}`].getDisplayedRowAtIndex(random(0, rowData.length - 1));
+            if (rowNode) rowNode.setDataValue('MonthlyIncome', random(1000, 6000));
+          }, random(900, 2000));
+        }
       });
 
-      setInterval(() => {
-        let tempData = newInstance(rowData);
-        range(0, random(0, 2)).map(() => {
-          const indexRemove = random(0, tempData.length - 1);
-          tempData = tempData.filter((d, i) => i !== indexRemove);
-        });
-        AgGrid.grids[`ag-grid-${idModal}`].setGridOption('rowData', tempData);
-      }, 3000);
+      if (!DashboardNexodev.Tokens[id]._interval_c) {
+        DashboardNexodev.Tokens[id]._interval_c = setInterval(() => {
+          let tempData = newInstance(rowData);
+          range(0, random(0, 2)).map(() => {
+            const indexRemove = random(0, tempData.length - 1);
+            tempData = tempData.filter((d, i) => i !== indexRemove);
+          });
+          AgGrid.grids[`ag-grid-${idModal}`].setGridOption('rowData', tempData);
+        }, 3000);
+      }
 
       //  gridApi.flashCells({
       //    rowNodes: [rowNode1, rowNode2],
