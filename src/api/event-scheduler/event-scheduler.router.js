@@ -1,4 +1,4 @@
-import { authMiddleware, moderatorGuard } from '../../server/auth.js';
+import { moderatorGuard } from '../../server/auth.js';
 import { loggerFactory } from '../../server/logger.js';
 import { EventSchedulerController } from './event-scheduler.controller.js';
 import express from 'express';
@@ -7,6 +7,7 @@ const logger = loggerFactory(import.meta);
 
 const EventSchedulerRouter = (options) => {
   const router = express.Router();
+  const authMiddleware = options.authMiddleware;
   router.post(
     `/:id`,
     authMiddleware,
