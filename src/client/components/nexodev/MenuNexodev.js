@@ -20,7 +20,7 @@ import { LogOut } from '../core/LogOut.js';
 import { buildBadgeToolTipMenuOption, Modal, renderMenuLabel, renderViewTitle } from '../core/Modal.js';
 import { SignUp } from '../core/SignUp.js';
 import { Translate } from '../core/Translate.js';
-import { htmls, s } from '../core/VanillaJs.js';
+import { htmls, s, sa } from '../core/VanillaJs.js';
 import { ElementsNexodev } from './ElementsNexodev.js';
 import Sortable from 'sortablejs';
 import { RouterNexodev, BannerAppTemplate } from './RoutesNexodev.js';
@@ -107,23 +107,23 @@ const MenuNexodev = {
             ${await BtnIcon.Render({
               class: 'in wfa main-btn-menu main-btn-docs',
               label: html`<div class="in">
-                  ${renderMenuLabel({
-                    icon: html`<i class="fas fa-book"></i>`,
-                    text: html`<span class="menu-label-text"
-                      >${Translate.Render('docs')}
-                      <i
-                        class="fas fa-caret-down inl down-arrow-submenu down-arrow-submenu-docs"
-                        style="rotate: 0deg; transition: 0.4s;"
-                      ></i
-                    ></span>`,
-                  })}
-                </div>
-                <div class="in menu-btn-container-children menu-btn-container-children-docs"></div> `,
+                ${renderMenuLabel({
+                  icon: html`<i class="fas fa-book"></i>`,
+                  text: html`<span class="menu-label-text"
+                    >${Translate.Render('docs')}
+                    <i
+                      class="fas fa-caret-down inl down-arrow-submenu down-arrow-submenu-docs"
+                      style="rotate: 0deg; transition: 0.4s;"
+                    ></i
+                  ></span>`,
+                })}
+              </div> `,
               attrs: `data-id="docs"`,
               tabHref: `${getProxyPath()}docs`,
               handleContainerClass: 'handle-btn-container',
               tooltipHtml: await Badge.Render(buildBadgeToolTipMenuOption('docs', 'right')),
             })}
+            <div class="abs menu-btn-container-children-docs"></div>
             ${await BtnIcon.Render({
               class: 'in wfa main-btn-menu main-btn-content',
               label: renderMenuLabel({
@@ -751,6 +751,24 @@ const MenuNexodev = {
 
     let firstOpenMenuDocs = location.pathname.match('/docs') ? true : false;
     EventsUI.onClick(`.main-btn-docs`, async () => {
+      s(`.menu-btn-container-children-docs`).style.top = s(`.main-btn-docs`).offsetTop + 50 + 'px';
+      s(`.menu-btn-container-children-docs`).style.width = '320px';
+      s(`.menu-btn-container-children-docs`).style.height = '0px';
+      const _hBtn = 51;
+      s(`.main-btn-docs`).style.marginBottom = `${0}px`;
+      s(`.main-btn-docs`).style.transition = '.3s';
+      setTimeout(() => {
+        s(`.main-btn-docs`).style.marginBottom = `${_hBtn * 6}px`;
+        s(`.menu-btn-container-children-docs`).style.height = `${_hBtn * 6}px`;
+        s(`.down-arrow-submenu-docs`).style.rotate = '180deg';
+        sa(`.btn-docs`).forEach((el) => {
+          el.classList.remove('hide');
+        });
+      }, 250);
+      setTimeout(() => {
+        s(`.main-btn-docs`).style.transition = null;
+      }, 500);
+
       setTimeout(async () => {
         // s(`.btn-icon-menu-back`).classList.remove('hide');
         // htmls(`.nav-title-display-modal-menu`, html`<i class="fas fa-book"></i> ${Translate.Render('docs')}`);
