@@ -106,18 +106,24 @@ const MenuNexodev = {
             })}
             ${await BtnIcon.Render({
               class: 'in wfa main-btn-menu main-btn-docs',
-              label: renderMenuLabel({
-                icon: html`<i class="fas fa-book"></i>`,
-                text: html`<span class="menu-label-text"
-                  >${Translate.Render('docs')} <i class="fas fa-caret-down in down-arrow-submenu"></i
-                ></span>`,
-              }),
+              label: html`<div class="in">
+                  ${renderMenuLabel({
+                    icon: html`<i class="fas fa-book"></i>`,
+                    text: html`<span class="menu-label-text"
+                      >${Translate.Render('docs')}
+                      <i
+                        class="fas fa-caret-down inl down-arrow-submenu down-arrow-submenu-docs"
+                        style="rotate: 0deg; transition: 0.4s;"
+                      ></i
+                    ></span>`,
+                  })}
+                </div>
+                <div class="in menu-btn-container-children menu-btn-container-children-docs"></div> `,
               attrs: `data-id="docs"`,
               tabHref: `${getProxyPath()}docs`,
               handleContainerClass: 'handle-btn-container',
               tooltipHtml: await Badge.Render(buildBadgeToolTipMenuOption('docs', 'right')),
             })}
-            <div class="fl menu-btn-container-children menu-btn-container-children-docs hide"></div>
             ${await BtnIcon.Render({
               class: 'in wfa main-btn-menu main-btn-content',
               label: renderMenuLabel({
@@ -743,16 +749,21 @@ const MenuNexodev = {
       });
     });
 
+    let firstOpenMenuDocs = location.pathname.match('/docs') ? true : false;
     EventsUI.onClick(`.main-btn-docs`, async () => {
       setTimeout(async () => {
-        s(`.btn-icon-menu-back`).classList.remove('hide');
-
-        htmls(`.nav-title-display-modal-menu`, html`<i class="fas fa-book"></i> ${Translate.Render('docs')}`);
-        await Docs.Init({
-          idModal: 'modal-docs',
-        });
+        // s(`.btn-icon-menu-back`).classList.remove('hide');
+        // htmls(`.nav-title-display-modal-menu`, html`<i class="fas fa-book"></i> ${Translate.Render('docs')}`);
+        // await Docs.Init({
+        //   idModal: 'modal-docs',
+        // });
       });
-
+      // if (getQueryParams().cid) return;
+      if (!Modal.subMenuBtnClass['docs'])
+        Modal.subMenuBtnClass['docs'] = {
+          btnSelector: `.btn-docs`,
+          labelSelector: `.menu-label-text-docs`,
+        };
       const { barConfig } = await Themes[Css.currentTheme]();
       await Modal.Render({
         id: 'modal-docs',
@@ -954,11 +965,22 @@ const MenuNexodev = {
         heightTopBar,
         heightBottomBar,
         barMode,
-        style: {
-          width: '400px',
-        },
+        // style: {
+        //   width: `${window.innerWidth - 300}px`,
+        // },
       });
-      s(`.action-btn-center`).click();
+      if (!firstOpenMenuDocs) {
+        s(`.action-btn-center`).click();
+      }
+      // else delete Modal.subMenuBtnClass['docs'];
+      firstOpenMenuDocs = false;
+      // Modal.Data['modal-docs'].onCloseListener['btn-docs-src'] = () => {
+      //   delete Modal.subMenuBtnClass['docs'];
+      //   console.error('close');
+      // };
+      await Docs.Init({
+        idModal: 'modal-docs',
+      });
     });
 
     EventsUI.onClick(`.main-btn-recover`, async () => {
