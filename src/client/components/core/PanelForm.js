@@ -535,7 +535,8 @@ const PanelForm = {
 
           if (
             !this.Data[idPanel].lasIdAvailable ||
-            this.Data[idPanel].lasIdAvailable !== this.Data[idPanel].originData.pop()._id
+            this.Data[idPanel].lasIdAvailable !==
+              this.Data[idPanel].originData[this.Data[idPanel].originData.length - 1]._id
           )
             LoadingAnimation.spinner.play(`.panel-placeholder-bottom-${idPanel}`, 'dual-ring-mini');
 
