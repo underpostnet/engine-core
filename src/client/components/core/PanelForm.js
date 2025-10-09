@@ -533,7 +533,11 @@ const PanelForm = {
             `,
           );
 
-          LoadingAnimation.spinner.play(`.panel-placeholder-bottom-${idPanel}`, 'dual-ring-mini');
+          if (
+            !this.Data[idPanel].lasIdAvailable ||
+            this.Data[idPanel].lasIdAvailable !== this.Data[idPanel].originData.pop()._id
+          )
+            LoadingAnimation.spinner.play(`.panel-placeholder-bottom-${idPanel}`, 'dual-ring-mini');
 
           const scrollContainerSelector = `.modal-${options.route}`;
 
