@@ -106,11 +106,19 @@ const Modal = {
             : 0)
         );
       },
-      getMenuLeftStyle: (options = { open: false }) =>
+      getMenuLeftStyle: (ops = { open: false }) =>
         `${
           options.barMode === 'top-bottom-bar'
-            ? `${windowGetW() + (options?.open ? -1 * originSlideMenuWidth : originSlideMenuWidth)}px`
-            : `-${options?.open ? '0px' : originSlideMenuWidth}px`
+            ? `${
+                windowGetW() +
+                (ops?.open
+                  ? -1 * originSlideMenuWidth +
+                    (options.barMode === 'top-bottom-bar' && s(`.btn-icon-menu-mode-right`).classList.contains('hide')
+                      ? originSlideMenuWidth - collapseSlideMenuWidth
+                      : 0)
+                  : originSlideMenuWidth)
+              }px`
+            : `-${ops?.open ? '0px' : originSlideMenuWidth}px`
         }`,
     };
 
@@ -123,11 +131,14 @@ const Modal = {
 
           options.style = { width: '100%', ...options.style, 'min-width': `${minWidth}px` };
 
-          if (this.mobileModal()) {
+          if (Modal.mobileModal()) {
             options.barConfig.buttons.restore.disabled = true;
             options.barConfig.buttons.minimize.disabled = true;
             options.dragDisabled = true;
             options.style.resize = 'none';
+            setTimeout(() => {
+              s(`.btn-close-modal-menu`).click();
+            });
           }
 
           Responsive.Event[`view-${idModal}`] = () => {
@@ -224,7 +235,7 @@ const Modal = {
             };
             const contentIconClass = 'abs center';
             top = 'auto';
-            left = 'auto';
+            left = Modal.Data[idModal].getMenuLeftStyle();
             transition = '.3s';
             options.dragDisabled = true;
             options.titleClass = 'hide';
@@ -242,7 +253,9 @@ const Modal = {
                   this.Data[_idModal].slideMenu.callBack();
               }
               s(`.${idModal}`).style.height = `${Modal.Data[idModal].getHeight()}px`;
-              s(`.${idModal}`).style.left = Modal.Data[idModal].getMenuLeftStyle({ open: true });
+              s(`.${idModal}`).style.left = Modal.Data[idModal].getMenuLeftStyle({
+                open: s(`.btn-bar-center-icon-menu`).classList.contains('hide') ? true : false,
+              });
               if (s(`.main-body-top`)) {
                 if (Modal.mobileModal()) {
                   if (s(`.btn-menu-${idModal}`).classList.contains('hide') && collapseSlideMenuWidth !== slideMenuWidth)
@@ -258,18 +271,16 @@ const Modal = {
               // s(`.${idModal}`).style.width = `${this.Data[idModal][options.mode].width}px`;
               s(`.html-${idModal}`).style.display = 'block';
               // s(`.title-modal-${idModal}`).style.display = 'block';
-              setTimeout(() => {
-                s(`.main-body-btn-ui-menu-menu`).classList.add('hide');
-                s(`.main-body-btn-ui-menu-close`).classList.remove('hide');
-                if (s(`.btn-bar-center-icon-menu`)) {
-                  s(`.btn-bar-center-icon-close`).classList.remove('hide');
-                  s(`.btn-bar-center-icon-menu`).classList.add('hide');
-                }
+              s(`.main-body-btn-ui-menu-menu`).classList.add('hide');
+              s(`.main-body-btn-ui-menu-close`).classList.remove('hide');
+              if (s(`.btn-bar-center-icon-menu`)) {
+                s(`.btn-bar-center-icon-close`).classList.remove('hide');
+                s(`.btn-bar-center-icon-menu`).classList.add('hide');
+              }
 
-                s(`.main-body-btn-container`).style[
-                  true || (options.mode && options.mode.match('right')) ? 'right' : 'left'
-                ] = options.mode && options.mode.match('right') ? `${slideMenuWidth}px` : '0px';
-              });
+              s(`.main-body-btn-container`).style[
+                true || (options.mode && options.mode.match('right')) ? 'right' : 'left'
+              ] = options.mode && options.mode.match('right') ? `${slideMenuWidth}px` : '0px';
               if (options.barMode === 'top-bottom-bar') {
                 s(`.${idModal}`).style.left = `${windowGetW() - originSlideMenuWidth}px`;
               } else {
@@ -284,17 +295,15 @@ const Modal = {
               // s(`.${idModal}`).style.width = `${this.Data[idModal][options.mode].width}px`;
               // s(`.html-${idModal}`).style.display = 'none';
               // s(`.title-modal-${idModal}`).style.display = 'none';
-              setTimeout(() => {
-                s(`.main-body-btn-ui-menu-close`).classList.add('hide');
-                s(`.main-body-btn-ui-menu-menu`).classList.remove('hide');
-                if (s(`.btn-bar-center-icon-menu`)) {
-                  s(`.btn-bar-center-icon-menu`).classList.remove('hide');
-                  s(`.btn-bar-center-icon-close`).classList.add('hide');
-                }
-                s(`.main-body-btn-container`).style[
-                  true || (options.mode && options.mode.match('right')) ? 'right' : 'left'
-                ] = `${0}px`;
-              });
+              s(`.main-body-btn-ui-menu-close`).classList.add('hide');
+              s(`.main-body-btn-ui-menu-menu`).classList.remove('hide');
+              if (s(`.btn-bar-center-icon-menu`)) {
+                s(`.btn-bar-center-icon-menu`).classList.remove('hide');
+                s(`.btn-bar-center-icon-close`).classList.add('hide');
+              }
+              s(`.main-body-btn-container`).style[
+                true || (options.mode && options.mode.match('right')) ? 'right' : 'left'
+              ] = `${0}px`;
               if (options.barMode === 'top-bottom-bar') {
                 s(`.${idModal}`).style.left = `${windowGetW() + originSlideMenuWidth}px`;
               } else {
@@ -305,7 +314,7 @@ const Modal = {
             transition += `, width 0.3s`;
 
             setTimeout(() => {
-              Responsive.Event[`slide-menu-${idModal}`]();
+              setTimeout(btnCloseEvent);
               append(
                 'body',
                 html`
