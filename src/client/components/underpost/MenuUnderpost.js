@@ -19,6 +19,8 @@ import { Badge } from '../core/Badge.js';
 import { SettingsUnderpost } from './SettingsUnderpost.js';
 import { Recover } from '../core/Recover.js';
 import { PanelForm } from '../core/PanelForm.js';
+import { SearchBox } from '../core/SearchBox.js';
+import { DocumentSearchProvider } from './DocumentSearchProvider.js';
 
 const MenuUnderpost = {
   Data: {},
@@ -178,8 +180,9 @@ const MenuUnderpost = {
       },
       mode: 'slide-menu',
       RouterInstance,
-      htmlMainBody: async () =>
-        await PanelForm.instance({
+      htmlMainBody: async () => {
+        // Create PanelForm instance first to get update function
+        const panelFormInstance = await PanelForm.instance({
           idPanel: 'underpost-panel',
           defaultUrlImage: `${getProxyPath()}assets/splash/apple-touch-icon-precomposed.png`,
           Elements: ElementsUnderpost,
@@ -187,7 +190,82 @@ const MenuUnderpost = {
           share: {
             copyLink: true,
           },
-        }),
+          showCreatorProfile: true,
+        });
+
+        // Store panel update function globally for search results
+        const updatePanelWithCid = (cid) => {
+          const path = getProxyPath();
+          const queryPath = `?cid=${cid}`;
+
+          // Update router without reload
+          if (RouterInstance && RouterInstance.Navigate) {
+            RouterInstance.Navigate({
+              route: 'home',
+              path,
+              queryPath,
+            });
+          }
+
+          // Trigger panel update event
+          if (PanelForm.Data['underpost-panel'] && PanelForm.Data['underpost-panel'].updatePanel) {
+            PanelForm.Data['underpost-panel'].updatePanel();
+          }
+        };
+
+        // Register document search provider with SPA navigation
+        SearchBox.registerProvider({
+          ...DocumentSearchProvider,
+          onClick: (result, context) => {
+            DocumentSearchProvider.onClick(result, {
+              ...context,
+              RouterInstance,
+              currentRoute: 'home',
+              updatePanel: updatePanelWithCid,
+            });
+          },
+        });
+
+        // Inject and update document search styles with theme support
+        const updateDocumentSearchStyles = () => {
+          const styleId = 'document-search-provider-styles';
+          let styleTag = s(`#${styleId}`);
+
+          if (!styleTag) {
+            styleTag = document.createElement('style');
+            styleTag.id = styleId;
+            document.head.appendChild(styleTag);
+          }
+
+          styleTag.textContent = DocumentSearchProvider.getStyles();
+        };
+
+        // Update SearchBox base styles
+        const updateSearchBoxBaseStyles = () => {
+          const baseStyleId = 'search-box-base-styles';
+          let baseStyleTag = s(`#${baseStyleId}`);
+
+          if (!baseStyleTag) {
+            baseStyleTag = document.createElement('style');
+            baseStyleTag.id = baseStyleId;
+            document.head.appendChild(baseStyleTag);
+          }
+
+          baseStyleTag.textContent = SearchBox.getBaseStyles();
+        };
+
+        // Initial style injection
+        updateDocumentSearchStyles();
+        updateSearchBoxBaseStyles();
+
+        // Register theme change handlers for dynamic styling
+        ThemeEvents['documentSearchStyles'] = () => {
+          updateDocumentSearchStyles();
+          updateSearchBoxBaseStyles();
+        };
+
+        return panelFormInstance;
+      },
     });
 
     this.Data[id].sortable = new Sortable(s(`.menu-btn-container`), {
