@@ -9,7 +9,13 @@ import { buildBadgeToolTipMenuOption, Modal, renderMenuLabel, renderViewTitle } 
 import { SignUp } from '../core/SignUp.js';
 import { Translate } from '../core/Translate.js';
 import { htmls, s } from '../core/VanillaJs.js';
-import { getProxyPath } from '../core/Router.js';
+import {
+  getProxyPath,
+  getQueryParams,
+  listenQueryParamsChange,
+  setPublicProfilePath,
+  extractUsernameFromPath,
+} from '../core/Router.js';
 import { ElementsUnderpost } from './ElementsUnderpost.js';
 import Sortable from 'sortablejs';
 import { RouterUnderpost, BannerAppTemplate } from './RoutesUnderpost.js';
@@ -452,6 +458,37 @@ const MenuUnderpost = {
 
     EventsUI.onClick(`.main-btn-public-profile`, async () => {
       const { barConfig } = await Themes[Css.currentTheme]();
+      const queryParams = getQueryParams();
+      let cid = queryParams.cid;
+      const defaultUser = ElementsUnderpost.Data.user.main.model.user;
+
+      // Check if we have a username from clean URL path
+      if (!cid) {
+        const usernameFromPath = extractUsernameFromPath();
+        cid = usernameFromPath || defaultUser.username;
+        if (!usernameFromPath) {
+          setPublicProfilePath(defaultUser.username);
+        }
+      }
+
+      // Check if public profile modal is already open
+      const existingModal = s('.modal-public-profile');
+      if (existingModal && Modal.Data['modal-public-profile']) {
+        // Modal already exists, update it with new username
+        const { PublicProfile } = await import('../core/PublicProfile.js');
+        await PublicProfile.Update({
+          idModal: 'modal-public-profile',
+          user: { username: cid },
+        });
+
+        // Ensure the modal is visible and focused
+        if (!existingModal.classList.contains('show')) {
+          existingModal.classList.add('show');
+        }
+
+        return;
+      }
+
       await Modal.Render({
         id: 'modal-public-profile',
         route: 'u',
@@ -464,7 +501,7 @@ const MenuUnderpost = {
         html: async () =>
           await PublicProfile.Render({
             idModal: 'modal-public-profile',
-            user: ElementsUnderpost.Data.user.main.model.user,
+            user: { username: cid },
           }),
         handleType: 'bar',
         maximize: true,
@@ -473,6 +510,29 @@ const MenuUnderpost = {
         RouterInstance,
         observer: true,
       });
+    });
+
+    listenQueryParamsChange({
+      id: 'menu-underpost-query-params',
+      event: async (params) => {
+        const currentRoute = window.location.pathname.split('/').pop() || 'home';
+
+        if (currentRoute === 'u' && params.cid) {
+          // Check if the public profile modal is already open
+          const currentModal = s('.modal-public-profile');
+          if (currentModal) {
+            // Modal is already open, update the profile content dynamically
+            const { PublicProfile } = await import('../core/PublicProfile.js');
+            await PublicProfile.Update({
+              idModal: 'modal-public-profile',
+              user: { username: params.cid },
+            });
+          } else {
+            // Modal is not open, open it normally
+            s('.main-btn-public-profile').click();
+          }
+        }
+      },
     });
 
     EventsUI.onClick(`.main-btn-settings`, async () => {
