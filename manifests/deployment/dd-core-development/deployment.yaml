@@ -1,0 +1,332 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dd-core-development-blue
+  namespace: default
+  labels:
+    app: dd-core-development-blue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dd-core-development-blue
+  template:
+    metadata:
+      labels:
+        app: dd-core-development-blue
+    spec:
+      containers:
+        - name: dd-core-development-blue
+          image: localhost/rockylinux9-underpost:v3.1.3
+
+          command:
+            - /bin/sh
+            - -c
+            - >
+              npm install -g npm@11.2.0 && npm install -g underpost && underpost secret underpost --create-from-file /etc/config/.env.development && underpost start --build --run dd-core development
+
+    
+          volumeMounts:
+            - name: config-volume-dd-core-development-blue
+              mountPath: /etc/config
+    
+      volumes:
+        - name: config-volume-dd-core-development-blue
+          configMap:
+            name: underpost-config
+    
+      
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dd-core-development-blue-service
+  namespace: default
+spec:
+  selector:
+    app: dd-core-development-blue
+  ports:
+    - name: 'tcp-4025'
+      protocol: TCP
+      port: 4025
+      targetPort: 4025
+    - name: 'udp-4025'
+      protocol: UDP
+      port: 4025
+      targetPort: 4025
+
+    - name: 'tcp-4026'
+      protocol: TCP
+      port: 4026
+      targetPort: 4026
+    - name: 'udp-4026'
+      protocol: UDP
+      port: 4026
+      targetPort: 4026
+
+    - name: 'tcp-4027'
+      protocol: TCP
+      port: 4027
+      targetPort: 4027
+    - name: 'udp-4027'
+      protocol: UDP
+      port: 4027
+      targetPort: 4027
+
+    - name: 'tcp-4028'
+      protocol: TCP
+      port: 4028
+      targetPort: 4028
+    - name: 'udp-4028'
+      protocol: UDP
+      port: 4028
+      targetPort: 4028
+
+    - name: 'tcp-4029'
+      protocol: TCP
+      port: 4029
+      targetPort: 4029
+    - name: 'udp-4029'
+      protocol: UDP
+      port: 4029
+      targetPort: 4029
+
+    - name: 'tcp-4030'
+      protocol: TCP
+      port: 4030
+      targetPort: 4030
+    - name: 'udp-4030'
+      protocol: UDP
+      port: 4030
+      targetPort: 4030
+
+    - name: 'tcp-4031'
+      protocol: TCP
+      port: 4031
+      targetPort: 4031
+    - name: 'udp-4031'
+      protocol: UDP
+      port: 4031
+      targetPort: 4031
+
+    - name: 'tcp-4032'
+      protocol: TCP
+      port: 4032
+      targetPort: 4032
+    - name: 'udp-4032'
+      protocol: UDP
+      port: 4032
+      targetPort: 4032
+
+    - name: 'tcp-4033'
+      protocol: TCP
+      port: 4033
+      targetPort: 4033
+    - name: 'udp-4033'
+      protocol: UDP
+      port: 4033
+      targetPort: 4033
+
+    - name: 'tcp-4034'
+      protocol: TCP
+      port: 4034
+      targetPort: 4034
+    - name: 'udp-4034'
+      protocol: UDP
+      port: 4034
+      targetPort: 4034
+
+    - name: 'tcp-4035'
+      protocol: TCP
+      port: 4035
+      targetPort: 4035
+    - name: 'udp-4035'
+      protocol: UDP
+      port: 4035
+      targetPort: 4035
+
+    - name: 'tcp-4036'
+      protocol: TCP
+      port: 4036
+      targetPort: 4036
+    - name: 'udp-4036'
+      protocol: UDP
+      port: 4036
+      targetPort: 4036
+
+    - name: 'tcp-4037'
+      protocol: TCP
+      port: 4037
+      targetPort: 4037
+    - name: 'udp-4037'
+      protocol: UDP
+      port: 4037
+      targetPort: 4037
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dd-core-development-green
+  namespace: default
+  labels:
+    app: dd-core-development-green
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dd-core-development-green
+  template:
+    metadata:
+      labels:
+        app: dd-core-development-green
+    spec:
+      containers:
+        - name: dd-core-development-green
+          image: localhost/rockylinux9-underpost:v3.1.3
+
+          command:
+            - /bin/sh
+            - -c
+            - >
+              npm install -g npm@11.2.0 && npm install -g underpost && underpost secret underpost --create-from-file /etc/config/.env.development && underpost start --build --run dd-core development
+
+    
+          volumeMounts:
+            - name: config-volume-dd-core-development-green
+              mountPath: /etc/config
+    
+      volumes:
+        - name: config-volume-dd-core-development-green
+          configMap:
+            name: underpost-config
+    
+      
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dd-core-development-green-service
+  namespace: default
+spec:
+  selector:
+    app: dd-core-development-green
+  ports:
+    - name: 'tcp-4025'
+      protocol: TCP
+      port: 4025
+      targetPort: 4025
+    - name: 'udp-4025'
+      protocol: UDP
+      port: 4025
+      targetPort: 4025
+
+    - name: 'tcp-4026'
+      protocol: TCP
+      port: 4026
+      targetPort: 4026
+    - name: 'udp-4026'
+      protocol: UDP
+      port: 4026
+      targetPort: 4026
+
+    - name: 'tcp-4027'
+      protocol: TCP
+      port: 4027
+      targetPort: 4027
+    - name: 'udp-4027'
+      protocol: UDP
+      port: 4027
+      targetPort: 4027
+
+    - name: 'tcp-4028'
+      protocol: TCP
+      port: 4028
+      targetPort: 4028
+    - name: 'udp-4028'
+      protocol: UDP
+      port: 4028
+      targetPort: 4028
+
+    - name: 'tcp-4029'
+      protocol: TCP
+      port: 4029
+      targetPort: 4029
+    - name: 'udp-4029'
+      protocol: UDP
+      port: 4029
+      targetPort: 4029
+
+    - name: 'tcp-4030'
+      protocol: TCP
+      port: 4030
+      targetPort: 4030
+    - name: 'udp-4030'
+      protocol: UDP
+      port: 4030
+      targetPort: 4030
+
+    - name: 'tcp-4031'
+      protocol: TCP
+      port: 4031
+      targetPort: 4031
+    - name: 'udp-4031'
+      protocol: UDP
+      port: 4031
+      targetPort: 4031
+
+    - name: 'tcp-4032'
+      protocol: TCP
+      port: 4032
+      targetPort: 4032
+    - name: 'udp-4032'
+      protocol: UDP
+      port: 4032
+      targetPort: 4032
+
+    - name: 'tcp-4033'
+      protocol: TCP
+      port: 4033
+      targetPort: 4033
+    - name: 'udp-4033'
+      protocol: UDP
+      port: 4033
+      targetPort: 4033
+
+    - name: 'tcp-4034'
+      protocol: TCP
+      port: 4034
+      targetPort: 4034
+    - name: 'udp-4034'
+      protocol: UDP
+      port: 4034
+      targetPort: 4034
+
+    - name: 'tcp-4035'
+      protocol: TCP
+      port: 4035
+      targetPort: 4035
+    - name: 'udp-4035'
+      protocol: UDP
+      port: 4035
+      targetPort: 4035
+
+    - name: 'tcp-4036'
+      protocol: TCP
+      port: 4036
+      targetPort: 4036
+    - name: 'udp-4036'
+      protocol: UDP
+      port: 4036
+      targetPort: 4036
+
+    - name: 'tcp-4037'
+      protocol: TCP
+      port: 4037
+      targetPort: 4037
+    - name: 'udp-4037'
+      protocol: UDP
+      port: 4037
+      targetPort: 4037
+  type: LoadBalancer
