@@ -9,11 +9,10 @@ import { SignUpHealthcare } from './components/healthcare/SignUpHealthcare.js';
 import { MenuHealthcare } from './components/healthcare/MenuHealthcare.js';
 import { RouterHealthcare } from './components/healthcare/RoutesHealthcare.js';
 import { SocketIo } from './components/core/SocketIo.js';
-import { ElementsHealthcare } from './components/healthcare/ElementsHealthcare.js';
+import { AppStoreHealthcare } from './components/healthcare/AppStoreHealthcare.js';
 import { SocketIoHealthcare } from './components/healthcare/SocketIoHealthcare.js';
 import { Worker } from './components/core/Worker.js';
 import { Keyboard } from './components/core/Keyboard.js';
-import { HealthcareParams } from './components/healthcare/CommonHealthcare.js';
 import { CssHealthcareDark, CssHealthcareLight } from './components/healthcare/CssHealthcare.js';
 import { TranslateHealthcare } from './components/healthcare/TranslateHealthcare.js';
 
@@ -26,11 +25,11 @@ window.onload = () =>
       await TranslateHealthcare.Init();
       await Responsive.Init();
       await MenuHealthcare.Render();
-      await SocketIo.Init({ channels: ElementsHealthcare.Data });
+      await SocketIo.Init({ channels: AppStoreHealthcare.Data });
       await SocketIoHealthcare.Init();
       await LogInHealthcare();
       await LogOutHealthcare();
       await SignUpHealthcare();
-      await Keyboard.Init({ callBackTime: HealthcareParams.EVENT_CALLBACK_TIME });
+      await Keyboard.Init();
     },
   });

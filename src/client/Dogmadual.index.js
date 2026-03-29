@@ -11,10 +11,9 @@ import { RouterDogmadual } from './components/dogmadual/RoutesDogmadual.js';
 import { CssDogmadualDark, CssDogmadualLight } from './components/dogmadual/CssDogmadual.js';
 import { Worker } from './components/core/Worker.js';
 import { Keyboard } from './components/core/Keyboard.js';
-import { DogmadualParams } from './components/dogmadual/CommonDogmadual.js';
 import { SocketIoDogmadual } from './components/dogmadual/SocketIoDogmadual.js';
 import { SocketIo } from './components/core/SocketIo.js';
-import { ElementsDogmadual } from './components/dogmadual/ElementsDogmadual.js';
+import { AppStoreDogmadual } from './components/dogmadual/AppStoreDogmadual.js';
 import { getProxyPath } from './components/core/Router.js';
 
 const htmlMainBody = async () => {
@@ -29,11 +28,11 @@ window.onload = () =>
       await TranslateCore.Init();
       await Responsive.Init();
       await MenuDogmadual.Render({ htmlMainBody });
-      await SocketIo.Init({ channels: ElementsDogmadual.Data });
+      await SocketIo.Init({ channels: AppStoreDogmadual.Data });
       await SocketIoDogmadual.Init();
       await LogInDogmadual();
       await LogOutDogmadual();
       await SignUpDogmadual();
-      await Keyboard.Init({ callBackTime: DogmadualParams.EVENT_CALLBACK_TIME });
+      await Keyboard.Init();
     },
   });

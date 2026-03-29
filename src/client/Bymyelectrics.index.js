@@ -11,10 +11,9 @@ import { RouterBymyelectrics } from './components/bymyelectrics/RoutesBymyelectr
 import { TranslateBymyelectrics } from './components/bymyelectrics/TranslateBymyelectrics.js';
 import { Worker } from './components/core/Worker.js';
 import { Keyboard } from './components/core/Keyboard.js';
-import { BymyelectricsParams } from './components/bymyelectrics/CommonBymyelectrics.js';
 import { SocketIo } from './components/core/SocketIo.js';
 import { SocketIoBymyelectrics } from './components/bymyelectrics/SocketIoBymyelectrics.js';
-import { ElementsBymyelectrics } from './components/bymyelectrics/ElementsBymyelectrics.js';
+import { AppStoreBymyelectrics } from './components/bymyelectrics/AppStoreBymyelectrics.js';
 import { s } from './components/core/VanillaJs.js';
 import { getProxyPath } from './components/core/Router.js';
 import { CssBymyelectricsDark, CssBymyelectricsLight } from './components/bymyelectrics/CssBymyelectrics.js';
@@ -214,11 +213,11 @@ window.onload = () =>
       await TranslateBymyelectrics.Init();
       await Responsive.Init();
       await MenuBymyelectrics.Render({ htmlMainBody });
-      await SocketIo.Init({ channels: ElementsBymyelectrics.Data });
+      await SocketIo.Init({ channels: AppStoreBymyelectrics.Data });
       await SocketIoBymyelectrics.Init();
       await LogInBymyelectrics();
       await LogOutBymyelectrics();
       await SignUpBymyelectrics();
-      await Keyboard.Init({ callBackTime: BymyelectricsParams.EVENT_CALLBACK_TIME });
+      await Keyboard.Init();
     },
   });
