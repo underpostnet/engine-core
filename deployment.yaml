@@ -21,24 +21,20 @@ spec:
       containers:
         - name: dd-core-development-blue
           image: localhost/rockylinux9-underpost:v3.2.0
+          envFrom:
+            - secretRef:
+                name: underpost-config
 
           command:
             - /bin/sh
             - -c
             - >
-              npm install -g npm@11.2.0 && npm install -g underpost && underpost secret underpost --create-from-file /etc/config/.env.development && underpost start --build --run dd-core development
+              npm install -g npm@11.2.0 &&
+              npm install -g underpost &&
+              underpost secret underpost --create-from-env &&
+              underpost start --build --run dd-core development
 
-    
-          volumeMounts:
-            - name: config-volume-dd-core-development-blue
-              mountPath: /etc/config
-    
-      volumes:
-        - name: config-volume-dd-core-development-blue
-          configMap:
-            name: underpost-config
-    
-      
+
 ---
 apiVersion: v1
 kind: Service
@@ -225,24 +221,20 @@ spec:
       containers:
         - name: dd-core-development-green
           image: localhost/rockylinux9-underpost:v3.2.0
+          envFrom:
+            - secretRef:
+                name: underpost-config
 
           command:
             - /bin/sh
             - -c
             - >
-              npm install -g npm@11.2.0 && npm install -g underpost && underpost secret underpost --create-from-file /etc/config/.env.development && underpost start --build --run dd-core development
+              npm install -g npm@11.2.0 &&
+              npm install -g underpost &&
+              underpost secret underpost --create-from-env &&
+              underpost start --build --run dd-core development
 
-    
-          volumeMounts:
-            - name: config-volume-dd-core-development-green
-              mountPath: /etc/config
-    
-      volumes:
-        - name: config-volume-dd-core-development-green
-          configMap:
-            name: underpost-config
-    
-      
+
 ---
 apiVersion: v1
 kind: Service
