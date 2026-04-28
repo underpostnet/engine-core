@@ -267,9 +267,9 @@ window.onload = () =>
         path: `/`,
       });
       await SocketIoCecinasmarcelina.Init();
-      await LogInCecinasmarcelina();
-      await LogOutCecinasmarcelina();
-      await SignUpCecinasmarcelina();
+      await LogInCecinasmarcelina.Init();
+      await LogOutCecinasmarcelina.Init();
+      await SignUpCecinasmarcelina.Init();
       await Keyboard.Init();
       await Modal.RenderSeoSanitizer();
     },

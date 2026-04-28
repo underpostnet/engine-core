@@ -29,9 +29,9 @@ window.onload = () =>
     sessionInit: async () => {
       await SocketIo.Init({ channels: AppStoreHealthcare.Data });
       await SocketIoHealthcare.Init();
-      await LogInHealthcare();
-      await LogOutHealthcare();
-      await SignUpHealthcare();
+      await LogInHealthcare.Init();
+      await LogOutHealthcare.Init();
+      await SignUpHealthcare.Init();
       await Keyboard.Init();
     },
   });

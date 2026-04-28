@@ -32,9 +32,9 @@ window.onload = () =>
     sessionInit: async () => {
       await SocketIo.Init({ channels: AppStoreDogmadual.Data });
       await SocketIoDogmadual.Init();
-      await LogInDogmadual();
-      await LogOutDogmadual();
-      await SignUpDogmadual();
+      await LogInDogmadual.Init();
+      await LogOutDogmadual.Init();
+      await SignUpDogmadual.Init();
       await Keyboard.Init();
     },
   });

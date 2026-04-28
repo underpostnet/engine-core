@@ -50,9 +50,10 @@ import { getProxyPath, getQueryParams, setQueryParams } from '../core/Router.js'
 import { CronManagement } from '../../services/cron/cron.management.js';
 import { Scroll } from '../core/Scroll.js';
 
-const MenuNexodev = {
-  Data: {},
-  Render: async function (options = { htmlMainBody: () => '' }) {
+class MenuNexodev {
+  static Data = {};
+
+  static async Render(options = { htmlMainBody: () => '' }) {
     const id = getId(this.Data, 'menu-');
     this.Data[id] = {};
     const RouterInstance = RouterNexodev();
@@ -916,7 +917,7 @@ const MenuNexodev = {
 
       Modal.Data['modal-menu'].homeModals.push('modal-test');
     });
-  },
-};
+  }
+}
 
 export { MenuNexodev };

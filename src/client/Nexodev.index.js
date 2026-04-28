@@ -537,9 +537,9 @@ window.onload = () =>
     sessionInit: async () => {
       await SocketIo.Init({ channels: AppStoreNexodev.Data });
       await SocketIoNexodev.Init();
-      await LogInNexodev();
-      await LogOutNexodev();
-      await SignUpNexodev();
+      await LogInNexodev.Init();
+      await LogOutNexodev.Init();
+      await SignUpNexodev.Init();
       await Keyboard.Init();
     },
   });

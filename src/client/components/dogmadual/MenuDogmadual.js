@@ -17,9 +17,10 @@ import { Badge } from '../core/Badge.js';
 import { SettingsDogmadual } from './SettingsDogmadual.js';
 import { Recover } from '../core/Recover.js';
 
-const MenuDogmadual = {
-  Data: {},
-  Render: async function (options = { htmlMainBody: () => html`` }) {
+class MenuDogmadual {
+  static Data = {};
+
+  static async Render(options = { htmlMainBody: () => html`` }) {
     const id = getId(this.Data, 'menu-');
     this.Data[id] = {};
     const RouterInstance = RouterDogmadual();
@@ -308,7 +309,7 @@ const MenuDogmadual = {
         RouterInstance,
       });
     });
-  },
-};
+  }
+}
 
 export { MenuDogmadual };

@@ -21,9 +21,10 @@ import { DefaultManagement } from '../../services/default/default.management.js'
 import { Page500 } from '../core/500.js';
 import { Page404 } from '../core/404.js';
 
-const MenuBymyelectrics = {
-  Data: {},
-  Render: async function (options = { htmlMainBody: () => html`` }) {
+class MenuBymyelectrics {
+  static Data = {};
+
+  static async Render(options = { htmlMainBody: () => html`` }) {
     const id = getId(this.Data, 'menu-');
     this.Data[id] = {};
     const RouterInstance = RouterBymyelectrics();
@@ -478,7 +479,7 @@ const MenuBymyelectrics = {
     EventsUI.onClick(`.main-btn-dossier`, async () => {
       location.href = `${getProxyPath()}docs/Dossier-By-My-Electrics-2025.pdf`;
     });
-  },
-};
+  }
+}
 
 export { MenuBymyelectrics };

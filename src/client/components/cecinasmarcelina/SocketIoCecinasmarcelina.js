@@ -1,6 +1,12 @@
 import { SocketIoHandlerProvider } from '../core/SocketIoHandler.js';
 import { AppStoreCecinasmarcelina } from './AppStoreCecinasmarcelina.js';
 
-const SocketIoCecinasmarcelina = SocketIoHandlerProvider.create(AppStoreCecinasmarcelina);
+class SocketIoCecinasmarcelina {
+  static Handler = SocketIoHandlerProvider.create(AppStoreCecinasmarcelina);
+
+  static Init(...args) {
+    return this.Handler.Init(...args);
+  }
+}
 
 export { SocketIoCecinasmarcelina };

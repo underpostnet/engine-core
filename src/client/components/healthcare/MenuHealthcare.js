@@ -26,9 +26,10 @@ import { getProxyPath, getQueryParams } from '../core/Router.js';
 
 const logger = loggerFactory(import.meta);
 
-const MenuHealthcare = {
-  Data: {},
-  Render: async function () {
+class MenuHealthcare {
+  static Data = {};
+
+  static async Render() {
     const id = getId(this.Data, 'menu-');
     this.Data[id] = {};
     const RouterInstance = RouterHealthcare();
@@ -689,7 +690,7 @@ const MenuHealthcare = {
         RouterInstance,
       });
     });
-  },
-};
+  }
+}
 
 export { MenuHealthcare };

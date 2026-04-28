@@ -22,9 +22,10 @@ import { PanelForm } from '../core/PanelForm.js';
 import { Chat } from '../core/Chat.js';
 import { PublicProfile } from '../core/PublicProfile.js';
 
-const MenuCecinasmarcelina = {
-  Data: {},
-  Render: async function (options = { htmlMainBody: () => html`` }) {
+class MenuCecinasmarcelina {
+  static Data = {};
+
+  static async Render(options = { htmlMainBody: () => html`` }) {
     const id = getId(this.Data, 'menu-');
     this.Data[id] = {};
     const RouterInstance = RouterCecinasmarcelina();
@@ -901,7 +902,7 @@ const MenuCecinasmarcelina = {
         barMode,
       });
     });
-  },
-};
+  }
+}
 
 export { MenuCecinasmarcelina };

@@ -217,9 +217,9 @@ window.onload = () =>
     sessionInit: async () => {
       await SocketIo.Init({ channels: AppStoreBymyelectrics.Data });
       await SocketIoBymyelectrics.Init();
-      await LogInBymyelectrics();
-      await LogOutBymyelectrics();
-      await SignUpBymyelectrics();
+      await LogInBymyelectrics.Init();
+      await LogOutBymyelectrics.Init();
+      await SignUpBymyelectrics.Init();
       await Keyboard.Init();
     },
   });

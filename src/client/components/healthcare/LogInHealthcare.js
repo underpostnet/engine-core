@@ -4,19 +4,21 @@ import { LogIn } from '../core/LogIn.js';
 import { s } from '../core/VanillaJs.js';
 import { AppStoreHealthcare } from './AppStoreHealthcare.js';
 
-const LogInHealthcare = async function () {
-  LogIn.Event['LogInHealthcare'] = async (options) => {
-    const { token, user } = options;
+class LogInHealthcare {
+  static async Init() {
+    LogIn.Event['LogInHealthcare'] = async (options) => {
+      const { token, user } = options;
 
+      AppStoreHealthcare.Data.user.main.model.user = user;
+      const { role } = user;
+
+      if (Auth.getToken() && commonModeratorGuard(role)) {
+        s(`.main-btn-healthcare-appointment-management`).classList.remove('hide');
+      } else s(`.main-btn-healthcare-appointment-management`).classList.add('hide');
+    };
+    const { user } = await Auth.sessionIn();
     AppStoreHealthcare.Data.user.main.model.user = user;
-    const { role } = user;
-
-    if (Auth.getToken() && commonModeratorGuard(role)) {
-      s(`.main-btn-healthcare-appointment-management`).classList.remove('hide');
-    } else s(`.main-btn-healthcare-appointment-management`).classList.add('hide');
-  };
-  const { user } = await Auth.sessionIn();
-  AppStoreHealthcare.Data.user.main.model.user = user;
-};
+  }
+}
 
 export { LogInHealthcare };
