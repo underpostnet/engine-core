@@ -11,13 +11,13 @@ import { RouterHealthcare } from './components/healthcare/RoutesHealthcare.js';
 import { SocketIo } from './components/core/SocketIo.js';
 import { AppStoreHealthcare } from './components/healthcare/AppStoreHealthcare.js';
 import { SocketIoHealthcare } from './components/healthcare/SocketIoHealthcare.js';
-import { Worker } from './components/core/Worker.js';
+import { AppRunner } from './components/core/AppRunner.js';
 import { Keyboard } from './components/core/Keyboard.js';
 import { CssHealthcareDark, CssHealthcareLight } from './components/healthcare/CssHealthcare.js';
 import { TranslateHealthcare } from './components/healthcare/TranslateHealthcare.js';
 
 window.onload = () =>
-  Worker.instance({
+  AppRunner.run({
     router: RouterHealthcare,
     render: async () => {
       await Css.loadThemes([CssHealthcareLight, CssHealthcareDark]);
@@ -25,6 +25,8 @@ window.onload = () =>
       await TranslateHealthcare.Init();
       await Responsive.Init();
       await MenuHealthcare.Render();
+    },
+    sessionInit: async () => {
       await SocketIo.Init({ channels: AppStoreHealthcare.Data });
       await SocketIoHealthcare.Init();
       await LogInHealthcare();

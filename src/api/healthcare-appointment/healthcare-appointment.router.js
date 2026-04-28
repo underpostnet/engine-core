@@ -5,9 +5,16 @@ import express from 'express';
 
 const logger = loggerFactory(import.meta);
 
-const HealthcareAppointmentRouter = (options) => {
+class HealthcareAppointmentRouter {
+  /**
+   * Builds and returns the Express Router for this API.
+   * @param {import('../../server/auth.js').RouterOptions} options
+   * @returns {import('express').Router}
+   * @memberof HealthcareAppointmentRouter
+   */
+  static router(options) {
   const router = express.Router();
-  const authMiddleware = options.authMiddleware;
+  const { authMiddleware } = options;
   router.post(
     `/:id`,
     authMiddleware,
@@ -53,8 +60,9 @@ const HealthcareAppointmentRouter = (options) => {
     async (req, res) => await HealthcareAppointmentController.delete(req, res, options),
   );
   return router;
-};
+  }
+}
 
-const ApiRouter = HealthcareAppointmentRouter;
+const ApiRouter = (options) => HealthcareAppointmentRouter.router(options);
 
 export { ApiRouter, HealthcareAppointmentRouter };

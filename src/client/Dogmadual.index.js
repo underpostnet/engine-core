@@ -9,7 +9,7 @@ import { SignUpDogmadual } from './components/dogmadual/SignUpDogmadual.js';
 import { MenuDogmadual } from './components/dogmadual/MenuDogmadual.js';
 import { RouterDogmadual } from './components/dogmadual/RoutesDogmadual.js';
 import { CssDogmadualDark, CssDogmadualLight } from './components/dogmadual/CssDogmadual.js';
-import { Worker } from './components/core/Worker.js';
+import { AppRunner } from './components/core/AppRunner.js';
 import { Keyboard } from './components/core/Keyboard.js';
 import { SocketIoDogmadual } from './components/dogmadual/SocketIoDogmadual.js';
 import { SocketIo } from './components/core/SocketIo.js';
@@ -21,13 +21,15 @@ const htmlMainBody = async () => {
 };
 
 window.onload = () =>
-  Worker.instance({
+  AppRunner.run({
     router: RouterDogmadual,
     render: async () => {
       await Css.loadThemes([CssDogmadualDark, CssDogmadualLight]);
       await TranslateCore.Init();
       await Responsive.Init();
       await MenuDogmadual.Render({ htmlMainBody });
+    },
+    sessionInit: async () => {
       await SocketIo.Init({ channels: AppStoreDogmadual.Data });
       await SocketIoDogmadual.Init();
       await LogInDogmadual();

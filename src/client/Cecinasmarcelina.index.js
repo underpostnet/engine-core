@@ -9,7 +9,7 @@ import { SignUpCecinasmarcelina } from './components/cecinasmarcelina/SignUpCeci
 import { MenuCecinasmarcelina } from './components/cecinasmarcelina/MenuCecinasmarcelina.js';
 import { RouterCecinasmarcelina } from './components/cecinasmarcelina/RoutesCecinasmarcelina.js';
 import { TranslateCecinasmarcelina } from './components/cecinasmarcelina/TranslateCecinasmarcelina.js';
-import { Worker } from './components/core/Worker.js';
+import { AppRunner } from './components/core/AppRunner.js';
 import { Keyboard } from './components/core/Keyboard.js';
 import { SocketIo } from './components/core/SocketIo.js';
 import { SocketIoCecinasmarcelina } from './components/cecinasmarcelina/SocketIoCecinasmarcelina.js';
@@ -252,7 +252,7 @@ const htmlMainBody = async () => {
 };
 
 window.onload = () =>
-  Worker.instance({
+  AppRunner.run({
     router: RouterCecinasmarcelina,
     render: async () => {
       await Css.loadThemes([CssCecinasmarcelinaLight, CssCecinasmarcelinaDark]);
@@ -260,6 +260,8 @@ window.onload = () =>
       await TranslateCecinasmarcelina.Init();
       await Responsive.Init();
       await MenuCecinasmarcelina.Render({ htmlMainBody });
+    },
+    sessionInit: async () => {
       await SocketIo.Init({
         channels: AppStoreCecinasmarcelina.Data,
         path: `/`,

@@ -11,7 +11,7 @@ import { RouterNexodev } from './components/nexodev/RoutesNexodev.js';
 import { SocketIo } from './components/core/SocketIo.js';
 import { AppStoreNexodev } from './components/nexodev/AppStoreNexodev.js';
 import { SocketIoNexodev } from './components/nexodev/SocketIoNexodev.js';
-import { Worker } from './components/core/Worker.js';
+import { AppRunner } from './components/core/AppRunner.js';
 import { CssNexodevDark, CssNexodevLight } from './components/nexodev/CssNexodev.js';
 import { Keyboard } from './components/core/Keyboard.js';
 import { s } from './components/core/VanillaJs.js';
@@ -526,13 +526,15 @@ const htmlMainBody = async () => {
 };
 
 window.onload = () =>
-  Worker.instance({
+  AppRunner.run({
     router: RouterNexodev,
     render: async () => {
       await Css.loadThemes([CssNexodevLight, CssNexodevDark]);
       await TranslateCore.Init();
       await Responsive.Init();
       await MenuNexodev.Render({ htmlMainBody });
+    },
+    sessionInit: async () => {
       await SocketIo.Init({ channels: AppStoreNexodev.Data });
       await SocketIoNexodev.Init();
       await LogInNexodev();

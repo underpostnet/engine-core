@@ -9,7 +9,7 @@ import { SignUpBymyelectrics } from './components/bymyelectrics/SignUpBymyelectr
 import { MenuBymyelectrics } from './components/bymyelectrics/MenuBymyelectrics.js';
 import { RouterBymyelectrics } from './components/bymyelectrics/RoutesBymyelectrics.js';
 import { TranslateBymyelectrics } from './components/bymyelectrics/TranslateBymyelectrics.js';
-import { Worker } from './components/core/Worker.js';
+import { AppRunner } from './components/core/AppRunner.js';
 import { Keyboard } from './components/core/Keyboard.js';
 import { SocketIo } from './components/core/SocketIo.js';
 import { SocketIoBymyelectrics } from './components/bymyelectrics/SocketIoBymyelectrics.js';
@@ -205,7 +205,7 @@ const htmlMainBody = async () => {
 };
 
 window.onload = () =>
-  Worker.instance({
+  AppRunner.run({
     router: RouterBymyelectrics,
     render: async () => {
       await Css.loadThemes([CssBymyelectricsLight, CssBymyelectricsDark]);
@@ -213,6 +213,8 @@ window.onload = () =>
       await TranslateBymyelectrics.Init();
       await Responsive.Init();
       await MenuBymyelectrics.Render({ htmlMainBody });
+    },
+    sessionInit: async () => {
       await SocketIo.Init({ channels: AppStoreBymyelectrics.Data });
       await SocketIoBymyelectrics.Init();
       await LogInBymyelectrics();
