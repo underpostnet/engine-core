@@ -4,7 +4,7 @@ import { EventSchedulerService } from './event-scheduler.service.js';
 const logger = loggerFactory(import.meta);
 
 class EventSchedulerController {
-  static async post(req, res, options) {
+  static post = async (req, res, options) => {
     try {
       const result = await EventSchedulerService.post(req, res, options);
       return res.status(200).json({
@@ -18,8 +18,8 @@ class EventSchedulerController {
         message: error.message,
       });
     }
-  }
-  static async get(req, res, options) {
+  };
+  static get = async (req, res, options) => {
     try {
       const result = await EventSchedulerService.get(req, res, options);
       return res.status(200).json({
@@ -33,8 +33,8 @@ class EventSchedulerController {
         message: error.message,
       });
     }
-  }
-  static async put(req, res, options) {
+  };
+  static put = async (req, res, options) => {
     try {
       const result = await EventSchedulerService.put(req, res, options);
       return res.status(200).json({
@@ -48,8 +48,8 @@ class EventSchedulerController {
         message: error.message,
       });
     }
-  }
-  static async delete(req, res, options) {
+  };
+  static delete = async (req, res, options) => {
     try {
       const result = await EventSchedulerService.delete(req, res, options);
       return res.status(200).json({
@@ -63,7 +63,7 @@ class EventSchedulerController {
         message: error.message,
       });
     }
-  }
+  };
 }
 
 export { EventSchedulerController };

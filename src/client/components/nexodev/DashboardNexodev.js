@@ -5,15 +5,13 @@ import { newInstance, random, range } from '../core/CommonJs.js';
 import Sortable from 'sortablejs';
 import { Modal } from '../core/Modal.js';
 import { s } from '../core/VanillaJs.js';
-
-const DashboardNexodev = {
-  Tokens: {},
-  Render: async function (options = { idModal: '' }) {
+class DashboardNexodev {
+  static Tokens = {};
+  static async instance(options = { idModal: '' }) {
     const id = options.idModal;
     const { idModal } = options;
-    this.Tokens[id] = { ...this.Tokens[id], ...options };
+    DashboardNexodev.Tokens[id] = { ...DashboardNexodev.Tokens[id], ...options };
     const setRandomWeightScore = () => random(0, 100) / 100;
-
     const rowData = [
       {
         FullName: 'Alice Johnson',
@@ -136,22 +134,26 @@ const DashboardNexodev = {
     setTimeout(() => {
       range(0, 3).map(() => {
         if (!DashboardNexodev.Tokens[id]._interval_a) {
-          DashboardNexodev.Tokens[id]._interval_a = setInterval(() => {
-            const rowNode = AgGrid.grids[`ag-grid-${idModal}`].getDisplayedRowAtIndex(random(0, rowData.length - 1));
-            if (rowNode) rowNode.setDataValue('WeightedScore', setRandomWeightScore());
-          }, random(900, 2000));
+          DashboardNexodev.Tokens[id]._interval_a = setInterval(
+            () => {
+              const rowNode = AgGrid.grids[`ag-grid-${idModal}`].getDisplayedRowAtIndex(random(0, rowData.length - 1));
+              if (rowNode) rowNode.setDataValue('WeightedScore', setRandomWeightScore());
+            },
+            random(900, 2000),
+          );
         }
       });
-
       range(0, 3).map(() => {
         if (!DashboardNexodev.Tokens[id]._interval_b) {
-          DashboardNexodev.Tokens[id]._interval_b = setInterval(() => {
-            const rowNode = AgGrid.grids[`ag-grid-${idModal}`].getDisplayedRowAtIndex(random(0, rowData.length - 1));
-            if (rowNode) rowNode.setDataValue('MonthlyIncome', random(1000, 6000));
-          }, random(900, 2000));
+          DashboardNexodev.Tokens[id]._interval_b = setInterval(
+            () => {
+              const rowNode = AgGrid.grids[`ag-grid-${idModal}`].getDisplayedRowAtIndex(random(0, rowData.length - 1));
+              if (rowNode) rowNode.setDataValue('MonthlyIncome', random(1000, 6000));
+            },
+            random(900, 2000),
+          );
         }
       });
-
       if (!DashboardNexodev.Tokens[id]._interval_c) {
         DashboardNexodev.Tokens[id]._interval_c = setInterval(() => {
           let tempData = newInstance(rowData);
@@ -162,14 +164,12 @@ const DashboardNexodev = {
           AgGrid.grids[`ag-grid-${idModal}`].setGridOption('rowData', tempData);
         }, 3000);
       }
-
       //  gridApi.flashCells({
       //    rowNodes: [rowNode1, rowNode2],
       //    flashDelay: 3000,
       //    fadeDelay: 2000,
       //  });
-
-      this.Tokens[id].sortable = Modal.mobileModal()
+      DashboardNexodev.Tokens[id].sortable = Modal.mobileModal()
         ? null
         : new Sortable(s(`.section-0-${id}`), {
             animation: 150,
@@ -186,7 +186,6 @@ const DashboardNexodev = {
                 const order = localStorage.getItem(sortable.options.group.name);
                 return order ? order.split('|') : [];
               },
-
               /**
                * Save the order of elements. Called onEnd (when the item is dropped).
                * @param {Sortable}  sortable
@@ -206,7 +205,6 @@ const DashboardNexodev = {
               const slotId = Array.from(evt.item.classList).pop();
               // console.log('slotId', slotId);
               if (evt.oldIndex === evt.newIndex) s(`.${slotId}`).click();
-
               // var itemEl = evt.item; // dragged HTMLElement
               // evt.to; // target list
               // evt.from; // previous list
@@ -219,7 +217,6 @@ const DashboardNexodev = {
             },
           });
     });
-
     return html`
       ${dynamicCol({ id: `section-0-${id}`, containerSelector: `section-0-${id}`, type: 'a-50-b-50' })}
       <div class="fl section-0-${id}">
@@ -227,14 +224,14 @@ const DashboardNexodev = {
           <div class="in section-mp">
             <div class="in sub-title-modal"><i class="fa-solid fa-chart-column sub-title-icon"></i> &nbsp Plot</div>
           </div>
-          <div class="in section-mp">${await D3Chart.Render()}</div>
+          <div class="in section-mp">${await D3Chart.instance()}</div>
         </div>
         <div class="in fll section-0-${id}-col-b" data-id="1">
           <div class="in section-mp">
             <div class="in sub-title-modal"><i class="far fa-list-alt sub-title-icon"></i> &nbsp Clients</div>
           </div>
           <div class="in section-mp">
-            ${await AgGrid.Render({
+            ${await AgGrid.instance({
               id: `ag-grid-${idModal}`,
               enableCellChangeFlash: true,
               darkTheme,
@@ -257,7 +254,6 @@ const DashboardNexodev = {
         </div>
       </div>
     `;
-  },
-};
-
+  }
+}
 export { DashboardNexodev };

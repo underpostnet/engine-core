@@ -1,10 +1,10 @@
 import { SignUp } from '../core/SignUp.js';
 
 class SignUpNexodev {
-  static async Init() {
-    SignUp.Event['SignUpNexodev'] = async (options) => {
-      const { user } = options;
-    };
+  static instance() {
+  SignUp.onSignup(async (options) => {
+    const { user } = options;
+  }, { key: 'SignUpNexodev' });
   }
 }
 

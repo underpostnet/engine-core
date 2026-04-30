@@ -1,37 +1,31 @@
 'use strict';
 
-import { Css } from './components/core/Css.js';
-import { Responsive } from './components/core/Responsive.js';
-import { TranslateCore } from './components/core/Translate.js';
+import { Worker } from './components/core/Worker.js';
+import { RouterHealthcare } from './components/healthcare/RouterHealthcare.js';
+import { AppShellHealthcare } from './components/healthcare/AppShellHealthcare.js';
+import { AppStoreHealthcare } from './components/healthcare/AppStoreHealthcare.js';
+import { SocketIoHealthcare } from './components/healthcare/SocketIoHealthcare.js';
 import { LogInHealthcare } from './components/healthcare/LogInHealthcare.js';
 import { LogOutHealthcare } from './components/healthcare/LogOutHealthcare.js';
 import { SignUpHealthcare } from './components/healthcare/SignUpHealthcare.js';
-import { MenuHealthcare } from './components/healthcare/MenuHealthcare.js';
-import { RouterHealthcare } from './components/healthcare/RoutesHealthcare.js';
-import { SocketIo } from './components/core/SocketIo.js';
-import { AppStoreHealthcare } from './components/healthcare/AppStoreHealthcare.js';
-import { SocketIoHealthcare } from './components/healthcare/SocketIoHealthcare.js';
-import { AppRunner } from './components/core/AppRunner.js';
-import { Keyboard } from './components/core/Keyboard.js';
 import { CssHealthcareDark, CssHealthcareLight } from './components/healthcare/CssHealthcare.js';
 import { TranslateHealthcare } from './components/healthcare/TranslateHealthcare.js';
 
+const CssHealthcareThemes = [CssHealthcareDark, CssHealthcareLight];
+
 window.onload = () =>
-  AppRunner.run({
+  Worker.instance({
     router: RouterHealthcare,
-    render: async () => {
-      await Css.loadThemes([CssHealthcareLight, CssHealthcareDark]);
-      await TranslateCore.Init();
-      await TranslateHealthcare.Init();
-      await Responsive.Init();
-      await MenuHealthcare.Render();
-    },
-    sessionInit: async () => {
-      await SocketIo.Init({ channels: AppStoreHealthcare.Data });
-      await SocketIoHealthcare.Init();
-      await LogInHealthcare.Init();
-      await LogOutHealthcare.Init();
-      await SignUpHealthcare.Init();
-      await Keyboard.Init();
+
+    themes: CssHealthcareThemes,
+    translate: TranslateHealthcare,
+    render: AppShellHealthcare,
+    appStore: AppStoreHealthcare,
+
+    session: {
+      socket: SocketIoHealthcare,
+      login: LogInHealthcare,
+      signout: LogOutHealthcare,
+      signup: SignUpHealthcare,
     },
   });

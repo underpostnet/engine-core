@@ -1,13 +1,9 @@
 import { Auth } from '../../components/core/Auth.js';
 import { loggerFactory } from '../../components/core/Logger.js';
 import { getApiBaseUrl, headersFactory, payloadFactory } from '../core/core.service.js';
-
 const logger = loggerFactory(import.meta);
-
 logger.info('Load service');
-
 const endpoint = 'event-scheduler';
-
 class EventSchedulerService {
   static post = (options = { id: '', body: {} }) =>
     new Promise((resolve, reject) =>
@@ -89,5 +85,4 @@ class EventSchedulerService {
         }),
     );
 }
-
 export { EventSchedulerService };

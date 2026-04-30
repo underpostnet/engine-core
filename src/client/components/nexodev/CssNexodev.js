@@ -14,7 +14,6 @@ class CssNexodevDark {
   static dark = true;
   static render = CssCommonNexodev;
 }
-
 class CssNexodevLight {
   static themePair = 'nexodev-dark';
   static theme = 'nexodev-light';

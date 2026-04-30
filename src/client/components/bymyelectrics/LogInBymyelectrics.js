@@ -3,13 +3,13 @@ import { LogIn } from '../core/LogIn.js';
 import { AppStoreBymyelectrics } from './AppStoreBymyelectrics.js';
 
 class LogInBymyelectrics {
-  static async Init() {
-    LogIn.Event['LogInBymyelectrics'] = async (options) => {
-      const { token, user } = options;
-      AppStoreBymyelectrics.Data.user.main.model.user = user;
-    };
-    const { user } = await Auth.sessionIn();
+  static async instance() {
+  LogIn.onLogin(async (options) => {
+    const { token, user } = options;
     AppStoreBymyelectrics.Data.user.main.model.user = user;
+  }, { key: 'LogInBymyelectrics' });
+  const { user } = await Auth.sessionIn();
+  AppStoreBymyelectrics.Data.user.main.model.user = user;
   }
 }
 

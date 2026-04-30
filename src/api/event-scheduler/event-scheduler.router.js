@@ -5,16 +5,9 @@ import express from 'express';
 
 const logger = loggerFactory(import.meta);
 
-class EventSchedulerRouter {
-  /**
-   * Builds and returns the Express Router for this API.
-   * @param {import('../../server/auth.js').RouterOptions} options
-   * @returns {import('express').Router}
-   * @memberof EventSchedulerRouter
-   */
-  static router(options) {
+const EventSchedulerRouter = (options) => {
   const router = express.Router();
-  const { authMiddleware } = options;
+  const authMiddleware = options.authMiddleware;
   router.post(
     `/:id`,
     authMiddleware,
@@ -60,9 +53,8 @@ class EventSchedulerRouter {
     async (req, res) => await EventSchedulerController.delete(req, res, options),
   );
   return router;
-  }
-}
+};
 
-const ApiRouter = (options) => EventSchedulerRouter.router(options);
+const ApiRouter = EventSchedulerRouter;
 
 export { ApiRouter, EventSchedulerRouter };

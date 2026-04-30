@@ -3,10 +3,10 @@ import { DefaultManagement } from '../default/default.management.js';
 import { HealthcareAppointmentService } from './healthcare-appointment.service.js';
 
 class HealthcareAppointmentManagement {
-  static async RenderTable({ appStore }) {
+  static instance = async ({ appStore }) => {
     const user = appStore.Data.user.main.model.user;
     const { role } = user;
-    return await DefaultManagement.RenderTable({
+    return await DefaultManagement.instance({
       idModal: 'modal-healthcare-appointment-management',
       serviceId: 'healthcare-appointment-management',
       entity: 'healthcare-appointment',
@@ -52,6 +52,6 @@ class HealthcareAppointmentManagement {
       },
       ServiceProvider: HealthcareAppointmentService,
     });
-  }
+  };
 }
 export { HealthcareAppointmentManagement };

@@ -10,8 +10,8 @@ import { htmls, s } from '../core/VanillaJs.js';
 import { getProxyPath } from '../core/Router.js';
 import { AppStoreHealthcare } from './AppStoreHealthcare.js';
 
-const RecordMoodHealthcare = {
-  Render: async function ({ idModal }) {
+class RecordMoodHealthcare {
+  static async instance({ idModal }) {
     const cellDim = 120;
     const renderStyle = (wFactorContainer) => {
       return html`<style>
@@ -60,7 +60,7 @@ const RecordMoodHealthcare = {
 
       <div class="in">
         <br /><br />
-        <div class="in home-h1-font-container">${Translate.Render('record-mood-title')}</div>
+        <div class="in home-h1-font-container">${Translate.instance('record-mood-title')}</div>
       </div>
       <div class="fl record-mood-emotion-cell-container">
         ${range(0, 5)
@@ -72,7 +72,7 @@ const RecordMoodHealthcare = {
                 barConfig.buttons.restore.disabled = true;
                 barConfig.buttons.minimize.disabled = true;
 
-                await Modal.Render({
+                await Modal.instance({
                   // route: 'record-mood-' + (emotionIndex + 1),
                   id: `modal-${btnId}`,
                   barConfig,
@@ -121,11 +121,11 @@ const RecordMoodHealthcare = {
                         />
                         <br />
                         <br />
-                        <div class="inl ${btnId}-thank-msg-container">${Translate.Render('record-mood-thank')}</div>
+                        <div class="inl ${btnId}-thank-msg-container">${Translate.instance('record-mood-thank')}</div>
                         <br />
                         <br />
-                        ${await BtnIcon.Render({
-                          label: html`${Translate.Render('add-notes')}`,
+                        ${await BtnIcon.instance({
+                          label: html`${Translate.instance('add-notes')}`,
                           class: 'b0-panel-sub-container add-note-btn',
                         })}
                       </div>
@@ -147,7 +147,7 @@ const RecordMoodHealthcare = {
                   const routeModal = 'record-mood';
                   const idPanel = 'record-mood-note-panel';
 
-                  await Modal.Render({
+                  await Modal.instance({
                     // route: 'record-mood-' + (emotionIndex + 1),
                     id: idModal,
                     barConfig,
@@ -170,8 +170,8 @@ const RecordMoodHealthcare = {
                     route: routeModal,
                     htmlFormHeader: () => html`
                       <div class="in record-mod-form-text-header-container">
-                        <div class="in home-h1-font-container">${Translate.Render('add-notes-title-1')}</div>
-                        <div class="in home-h2-font-container">${Translate.Render('add-notes-title-2')}</div>
+                        <div class="in home-h1-font-container">${Translate.instance('add-notes-title-1')}</div>
+                        <div class="in home-h2-font-container">${Translate.instance('add-notes-title-2')}</div>
                       </div>
                     `,
                     firsUpdateEvent: () => {
@@ -192,7 +192,7 @@ const RecordMoodHealthcare = {
           })
           .join('')}
       </div>`;
-  },
-};
+  }
+}
 
 export { RecordMoodHealthcare };
