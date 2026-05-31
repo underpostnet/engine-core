@@ -37,14 +37,14 @@ underpost lxd --init
 underpost lxd --create-virtual-network
 underpost lxd --create-admin-profile
 
-# 3. Create and initialize a control plane VM. --init-vm does OS base setup,
+# 3. Create and initialize a control plane VM. --vm-init does OS base setup,
 #    mirrors /home/dd/engine into the VM, and installs the K3s role in one step.
-underpost lxd --create-vm k3s-control
-underpost lxd --init-vm k3s-control --control
+underpost lxd k3s-control --vm-create
+underpost lxd k3s-control --vm-init --control
 
 # 4. Create and join a worker VM (engine mirror is automatic here too).
-underpost lxd --create-vm k3s-worker
-underpost lxd --init-vm k3s-worker --worker --join-node k3s-control
+underpost lxd k3s-worker --vm-create
+underpost lxd k3s-worker --vm-init --worker --join-node k3s-control
 
 # 5. Expose ports from control plane
 underpost lxd --expose k3s-control:80,443
@@ -117,15 +117,15 @@ LXD's destructive ops never reimplement K3s teardown — they probe each VM for 
 | Mode    | What it does (in order)                                                                                                                                                                  | When to use                                                                                            |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `drain` | Stop `k3s` / `k3s-agent` systemd units → `/usr/local/bin/k3s-killall.sh` (unmount pod overlays, tear down flannel CNI). K3s **stays installed**; it comes back on next host/VM boot.     | Reversible operations. `--shutdown` uses this so `--restore` brings K3s back automatically.            |
-| `full`  | Drain (as above) → `/usr/local/bin/k3s-uninstall.sh` (and `k3s-agent-uninstall.sh`) → remove `~/.kube`, `/etc/rancher/k3s`, leftover `flannel.1` / `cni0` → re-apply `configMinimalK3s`. | Destructive operations where the VM is going away or being wiped: `--delete-vm`, `--reset`, `--purge`. |
+| `full`  | Drain (as above) → `/usr/local/bin/k3s-uninstall.sh` (and `k3s-agent-uninstall.sh`) → remove `~/.kube`, `/etc/rancher/k3s`, leftover `flannel.1` / `cni0` → re-apply `configMinimalK3s`. | Destructive operations where the VM is going away or being wiped: `--vm-delete`, `--reset`, `--purge`. |
 
 #### How each LXD op uses it
 
 | Host action   | Per-VM teardown invoked                                                                                          | Why this mode                                                                                                         |
 | ------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `--shutdown`  | `_resetK3sInVm(vm, 'drain')` for each running VM, then `lxc stop --timeout 60`, then `lxd shutdown --timeout 60` | Reversible — after `--restore`, K3s must come back on its own.                                                        |
-| `--delete-vm` | `_resetK3sInVm(vm, 'full')`, then `lxc stop --timeout 60`, then `lxc delete`                                     | VM is being destroyed — full teardown ensures clean unmount and frees iptables NAT.                                   |
-| `--reset`     | `_resetK3sInVm(vm, 'full')` for each VM, then stop + delete each, then drop profile + bridge network             | Every VM is being destroyed — same logic as `--delete-vm`, applied per-VM.                                            |
+| `--vm-delete` | `_resetK3sInVm(vm, 'full')`, then `lxc stop --timeout 60`, then `lxc delete`                                     | VM is being destroyed — full teardown ensures clean unmount and frees iptables NAT.                                   |
+| `--reset`     | `_resetK3sInVm(vm, 'full')` for each VM, then stop + delete each, then drop profile + bridge network             | Every VM is being destroyed — same logic as `--vm-delete`, applied per-VM.                                            |
 | `--purge`     | `_resetK3sInVm(vm, 'full')` for each running VM BEFORE `lxd shutdown`, then snap remove                          | Snap removal will wipe everything, but cleaning K3s first means the ZFS pool isn't dirty when `lxd shutdown` flushes. |
 
 #### Existence probe
@@ -264,9 +264,9 @@ underpost lxd --create-admin-profile --copy
 ### Create VM (two-phase)
 
 ```bash
-underpost lxd --create-vm k3s-control                 # prints the launch cmd
-underpost lxd --create-vm k3s-worker --root-size 64   # prints, custom disk size
-underpost lxd --create-vm k3s-control --copy          # copies it to clipboard instead
+underpost lxd k3s-control --vm-create                 # prints the launch cmd
+underpost lxd k3s-worker --vm-create --root-size 64   # prints, custom disk size
+underpost lxd k3s-control --vm-create --copy          # copies it to clipboard instead
 # (run the printed/copied `lxc launch ...` command in your shell)
 ```
 
@@ -275,12 +275,12 @@ The CLI never runs `lxc launch` itself — it can hang on first image fetch or A
 - **Default**: prints the command to the terminal.
 - **`--copy`**: copies the command to the clipboard.
 
-Use `--root-size <gb>` to set the root disk size in GiB (default: 32). The command always targets the `admin-profile` so the host-safety defaults are applied.
+Use the `[vm-id]` command argument to identify the target VM for the boolean lifecycle flags, and `--root-size <gb>` to set the root disk size in GiB (default: 32). The command always targets the `admin-profile` so the host-safety defaults are applied.
 
 ### Delete VM
 
 ```bash
-underpost lxd --delete-vm k3s-worker
+underpost lxd k3s-worker --vm-delete
 ```
 
 Safely stops and deletes the specified VM. The order is fixed and every step is gated on a pre-condition (no error suppression):
@@ -295,7 +295,7 @@ If any step fails after its precondition passes, the error is raised loudly. The
 ### VM Info
 
 ```bash
-underpost lxd --info-vm k3s-control
+underpost lxd k3s-control --vm-info
 ```
 
 Displays full configuration and status for the specified VM.
@@ -303,7 +303,7 @@ Displays full configuration and status for the specified VM.
 ### Test VM
 
 ```bash
-underpost lxd --test k3s-control
+underpost lxd k3s-control --vm-test
 ```
 
 Runs connectivity and health checks on the specified VM.
@@ -312,7 +312,7 @@ Runs connectivity and health checks on the specified VM.
 
 ## K3s Node Initialization
 
-`--init-vm` is the single end-to-end entry point. It runs the following inside the named VM, in order:
+`--vm-init` is the single end-to-end entry point. It runs the following inside the VM identified by the `[vm-id]` command argument, in order:
 
 1. [`scripts/lxd-vm-setup.sh`](../../../../../scripts/lxd-vm-setup.sh) — OS base setup (NIC + DHCP with static fallback, DNS, root resize, `tar`/`jq`/`curl`/`epel`, `br_netfilter`). Fails closed if outbound connectivity is unreachable.
    The Rocky bootstrap uses a MAC-based DHCP client ID so LXD managed bridge leases behave correctly, and only falls back to a manual IPv4 config if DHCP still does not settle.
@@ -322,14 +322,14 @@ Runs connectivity and health checks on the specified VM.
 ### Control Plane Node
 
 ```bash
-underpost lxd --init-vm k3s-control --control
+underpost lxd k3s-control --vm-init --control
 ```
 
 ### Worker Node
 
 ```bash
-underpost lxd --init-vm k3s-worker --worker
-underpost lxd --init-vm k3s-worker --worker --join-node k3s-control
+underpost lxd k3s-worker --vm-init --worker
+underpost lxd k3s-worker --vm-init --worker --join-node k3s-control
 ```
 
 When `--join-node <control-name>` is provided, the worker reads the control plane's IP and node token over `lxc exec` and joins the cluster automatically.
@@ -340,7 +340,7 @@ When `--join-node <control-name>` is provided, the worker reads the control plan
 underpost lxd --join-node k3s-worker,k3s-control
 ```
 
-Standalone join: runs the same `scripts/k3s-node-setup.sh --worker --control-ip=… --token=…` path that `--init-vm --worker` uses. One K3s install code path.
+Standalone join: runs the same `scripts/k3s-node-setup.sh --worker --control-ip=… --token=…` path that `--vm-init --worker` uses. One K3s install code path.
 
 ---
 
@@ -367,26 +367,27 @@ Removes the named proxy devices. If a device isn't present, the step is a no-op 
 
 ## Options Reference
 
-| Option                       | Description                                                                                                                                  | Default           |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `--init`                     | Initialize LXD via preseed                                                                                                                   | -                 |
-| `--reset`                    | **Host-safe reset**: remove proxy devices, stop/delete VMs, drop `admin-profile` and `lxdbr0`. Does NOT touch the LXD snap or storage pools. | -                 |
-| `--purge`                    | **Destructive**: gracefully shut LXD daemon (60s), then `snap remove lxd --purge`. Combine with `--reset` to wipe per-VM state first.        | -                 |
-| `--shutdown`                 | **Pre-host-reboot procedure**: graceful stop of every VM and the LXD daemon. Run BEFORE any `reboot`/`poweroff`.                             | -                 |
-| `--restore`                  | **Post-boot restore**: start LXD daemon, wait for it to be responsive, start every VM. Symmetric counterpart to `--shutdown`.                | -                 |
-| `--install`                  | Install the LXD snap (idempotent)                                                                                                            | -                 |
-| `--dev`                      | Use local paths instead of global npm installation                                                                                           | -                 |
-| `--create-virtual-network`   | Create the `lxdbr0` bridge network (idempotent)                                                                                              | -                 |
-| `--ipv4-address <cidr>`      | IPv4 address/CIDR for the bridge network                                                                                                     | `10.250.250.1/24` |
-| `--create-admin-profile`     | Create (or update) the `admin-profile`                                                                                                       | -                 |
-| `--control`                  | Initialize target VM as K3s control plane node (use with `--init-vm`)                                                                        | -                 |
-| `--worker`                   | Initialize target VM as K3s worker node (use with `--init-vm`)                                                                               | -                 |
-| `--create-vm <vm-name>`      | Copy LXC launch command for a new VM to clipboard                                                                                            | -                 |
-| `--delete-vm <vm-name>`      | Stop and delete VM. Pre-condition checks gate every step; failures propagate.                                                                | -                 |
-| `--init-vm <vm-name>`        | OS base setup + mirror `/home/dd/engine` into the VM + K3s role install (single end-to-end step).                                            | -                 |
-| `--info-vm <vm-name>`        | Display full VM configuration and status                                                                                                     | -                 |
-| `--test <vm-name>`           | Run connectivity and health checks                                                                                                           | -                 |
-| `--root-size <gb>`           | Root disk size in GiB for `--create-vm`                                                                                                      | `32`              |
-| `--join-node <nodes>`        | Join K3s worker to control plane. Formats: `workerName,controlName` or just the control name                                                 | -                 |
-| `--expose <vm-name:ports>`   | Proxy host ports to VM (e.g., `k3s-control:80,443`)                                                                                          | -                 |
-| `--delete-expose <vm:ports>` | Remove proxied ports from a VM                                                                                                               | -                 |
+| Option                       | Description                                                                                                                                    | Default           |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `--init`                     | Initialize LXD via preseed                                                                                                                     | -                 |
+| `--reset`                    | **Host-safe reset**: remove proxy devices, stop/delete VMs, drop `admin-profile` and `lxdbr0`. Does NOT touch the LXD snap or storage pools.   | -                 |
+| `--purge`                    | **Destructive**: gracefully shut LXD daemon (60s), then `snap remove lxd --purge`. Combine with `--reset` to wipe per-VM state first.          | -                 |
+| `--shutdown`                 | **Pre-host-reboot procedure**: graceful stop of every VM and the LXD daemon. Run BEFORE any `reboot`/`poweroff`.                               | -                 |
+| `--restore`                  | **Post-boot restore**: start LXD daemon, wait for it to be responsive, start every VM. Symmetric counterpart to `--shutdown`.                  | -                 |
+| `--install`                  | Install the LXD snap (idempotent)                                                                                                              | -                 |
+| `--dev`                      | Use local paths instead of global npm installation                                                                                             | -                 |
+| `--create-virtual-network`   | Create the `lxdbr0` bridge network (idempotent)                                                                                                | -                 |
+| `--ipv4-address <cidr>`      | IPv4 address/CIDR for the bridge network                                                                                                       | `10.250.250.1/24` |
+| `--create-admin-profile`     | Create (or update) the `admin-profile`                                                                                                         | -                 |
+| `--control`                  | Initialize target VM as K3s control plane node (use with `--vm-init`)                                                                          | -                 |
+| `--worker`                   | Initialize target VM as K3s worker node (use with `--vm-init`)                                                                                 | -                 |
+| `[vm-id]`                    | Shared VM identifier argument for `--vm-create`, `--vm-delete`, `--vm-init`, `--vm-info`, and `--vm-test`                                      | -                 |
+| `--vm-create`                | Copy LXC launch command for the VM identified by the `[vm-id]` command argument                                                                | -                 |
+| `--vm-delete`                | Stop and delete the VM identified by the `[vm-id]` command argument. Pre-condition checks gate every step; failures propagate.                 | -                 |
+| `--vm-init`                  | OS base setup + mirror `/home/dd/engine` into the VM identified by the `[vm-id]` command argument + K3s role install (single end-to-end step). | -                 |
+| `--vm-info`                  | Display full VM configuration and status for the VM identified by the `[vm-id]` command argument                                               | -                 |
+| `--vm-test`                  | Run connectivity and health checks on the VM identified by the `[vm-id]` command argument                                                      | -                 |
+| `--root-size <gb>`           | Root disk size in GiB for `--vm-create`                                                                                                        | `32`              |
+| `--join-node <nodes>`        | Join K3s worker to control plane. Formats: `workerName,controlName` or just the control name                                                   | -                 |
+| `--expose <vm-name:ports>`   | Proxy host ports to VM (e.g., `k3s-control:80,443`)                                                                                            | -                 |
+| `--delete-expose <vm:ports>` | Remove proxied ports from a VM                                                                                                                 | -                 |
