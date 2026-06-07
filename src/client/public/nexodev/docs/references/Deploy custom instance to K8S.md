@@ -115,7 +115,7 @@ An instance config may declare K8S-native lifecycle hooks and probes. These spli
 {
   "id": "mmo-server",
   "runtime": "cyberia-server",
-  "image": "underpost/cyberia-server:v3.2.21",
+  "image": "underpost/cyberia-server:v3.2.22",
   "fromPort": 8081,
   "toPort": 8081,
   "cmd": {
@@ -159,6 +159,16 @@ Status transitions explained:
 
 K8S marks the pod **Ready** only when `readinessProbe` succeeds (TCP socket on the listening port). A runtime that crashes on startup exits non-zero, kubelet surfaces a CrashLoopBackOff, and the pod's Ready condition stays False — the orchestrator gate never opens.
 
+#### How the monitor observes instances
+
+`underpost run instance` drives `monitorReadyRunner` in **kubernetes-gate + exec-transport** mode (`{ readyGate: 'kubernetes', statusTransport: 'exec' }`), which matches this lifecycle exactly:
+
+- **Running signal = K8s Ready.** Success is declared when every pod's `readinessProbe` passes — the instance runtime never stamps `running-deployment`, so the monitor does not wait for it.
+- **Status read = `kubectl exec … underpost config get container-status`.** Instances have no `/_internal/status` HTTP endpoint (that belongs to `underpost start` runtimes only), so the monitor reads the env-file value the `lifecycle` hooks stamp. It is used for fast `error` fast-fail and for the display column, not as the readiness gate.
+- **Crash detection = pod state.** A crashing binary surfaces as `CrashLoopBackOff`/`Error` and the monitor fails immediately.
+
+By contrast, `underpost start` deploys (the engine itself, `dd-*` with `conf.server.json`) run in the default **runtime-gate + http-transport** mode: they serve `/_internal/status`, their HTTP `readinessProbe` (`/_internal/ready`) gates K8s Ready on `running-deployment`, and `buildManifest` injects `UNDERPOST_INTERNAL_PORT` so the endpoint, the probes, and the monitor's port-forward target all agree.
+
 Each block (`lifecycle`, `readinessProbe`, `livenessProbe`) may be either a single object (shared across envs) or `{ development: {...}, production: {...} }` for env-scoped values — useful when dev runs on a different port than prod.
 
 ### `imagePullPolicy` — per-instance override (extension)
@@ -168,7 +178,7 @@ The `instance` and `instance-build-manifest` runners recognise a non-standard `i
 ```jsonc
 {
   "id": "mmo-server",
-  "image": "underpost/cyberia-server:v3.2.21",
+  "image": "underpost/cyberia-server:v3.2.22",
   "lifecycle": {
     "development": {
       "imagePullPolicy": "Always",
@@ -188,7 +198,7 @@ This compiles to the following container snippet in the rendered manifest:
 
 ```yaml
 - name: dd-cyberia-mmo-server-production-blue
-  image: underpost/cyberia-server:v3.2.21
+  image: underpost/cyberia-server:v3.2.22
   imagePullPolicy: Always
   …
   lifecycle:
@@ -673,9 +683,9 @@ The Cyberia MMO ships two instances out of the box under deploy id `dd-cyberia`.
 
 - **`mmo-client`** — `runtime: "cyberia-client"` (Dockerfile at `src/runtime/cyberia-client/Dockerfile`). The Python static-file server `server.py` serves the pre-built WASM bundle from `bin/`. Development uses `8082` (debug port); production uses `8081`. No env file or gRPC wiring — the client is presentation-only and talks to the cyberia-server WebSocket / engine REST endpoints at runtime.
 
-Both Dockerfiles install `underpost@${UNDERPOST_VERSION}` at build time (`ARG UNDERPOST_VERSION=3.2.21`), so the `cmd` entries can call `underpost config set container-status …` without paying an `npm install -g` cost on every pod boot. The two CI workflows that publish these images forward `UNDERPOST_VERSION` as a build-arg to keep the in-image CLI aligned with the image tag.
+Both Dockerfiles install `underpost@${UNDERPOST_VERSION}` at build time (`ARG UNDERPOST_VERSION=3.2.22`), so the `cmd` entries can call `underpost config set container-status …` without paying an `npm install -g` cost on every pod boot. The two CI workflows that publish these images forward `UNDERPOST_VERSION` as a build-arg to keep the in-image CLI aligned with the image tag.
 
-Both instances also set `lifecycle.<env>.imagePullPolicy: "Always"` so kubelet re-pulls the published image on every rollout — the CI tags (`v3.2.21`, `v3.2.21`, …) move forward only through coordinated bumps, but the registry image itself can be republished under the same tag during incident response, and `Always` ensures the cluster picks that up. See [imagePullPolicy — per-instance override](#imagepullpolicy--per-instance-override-extension).
+Both instances also set `lifecycle.<env>.imagePullPolicy: "Always"` so kubelet re-pulls the published image on every rollout — the CI tags (`v3.2.22`, `v3.2.22`, …) move forward only through coordinated bumps, but the registry image itself can be republished under the same tag during incident response, and `Always` ensures the cluster picks that up. See [imagePullPolicy — per-instance override](#imagepullpolicy--per-instance-override-extension).
 
 ## Best Practices
 
