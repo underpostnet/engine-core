@@ -26,7 +26,8 @@ WireGuard carries packets. It is not a router of hostnames and never sees one. E
 9. [Adding a spoke without downtime](#adding-a-spoke-without-downtime)
 10. [Lifecycle and idempotency](#lifecycle-and-idempotency)
 11. [Response compression and egress](#response-compression-and-egress)
-12. [Relationship to `underpost-ingress` and `underpost-gateway`](#relationship-to-underpost-ingress-and-underpost-gateway)
+12. [Outbound forward proxy](#outbound-forward-proxy)
+13. [Relationship to `underpost-ingress` and `underpost-gateway`](#relationship-to-underpost-ingress-and-underpost-gateway)
 
 ---
 
@@ -53,6 +54,9 @@ The alternative — a full reverse proxy terminating TLS on the VPS — spreads 
 │    TCP :80   ─ Host header, per host ──► 10.0.0.x:80  (redirects, ACME) │
 │    TCP :443  ─ SNI preread, per host ──► 10.0.0.x:443 (no TLS term.)    │
 │    UDP :443  ─ DNAT, WHOLE PORT      ──► default spoke only (QUIC/H3)   │
+│                                                                         │
+│  FORWARD PROXY (outbound, opt-in)  10.0.0.1:1080, tunnel-bound only     │
+│    HTTP + CONNECT from a spoke ──────► internet, from the VPS public IP │
 │                                                                         │
 │  WIREGUARD L3 TRANSPORT   wg0 │ 10.0.0.1/24 │ UDP 51820                 │
 │    overlay routing table: 10.0.0.2 ─► 192.168.20.0/24, …                │
@@ -116,13 +120,16 @@ Why the split by port — the same reasoning `underpost-ingress` applies inside 
 | `--haproxy-sync` | boolean | Optional | Recompiles the maps from deploy config and hot-reloads HAProxy. |
 | `--status` | boolean | Optional | **The one read-only command.** Prints the whole edge context; changes nothing. |
 | `--build-conf` | boolean | Optional | Writes **only** the registry; touches no host state. Combine with `--wireguard-setup` / `--peer-add` / `--peer-remove` to author the topology off-box; alone it normalizes and validates the existing file. |
+| `--forward-proxy-server` | boolean | Optional | 🟦 HUB only. Ensures the outbound HTTP/`CONNECT` forward proxy runs as the `underpost-forward-proxy` systemd service on `<tunnel address>:1080`, then **returns** — the CLI does not stay attached. Idempotent: re-running restarts the service only when the unit actually changed. Authenticates every request with `FORWARD_PROXY_API_KEY`. See [Outbound forward proxy](#outbound-forward-proxy). |
+| `--forward-proxy-server-host <host>` | string | Optional | Address the forward proxy binds, overriding the hub tunnel address from the registry. |
+| `--forward-proxy-server-port <port>` | number | Optional | Port the forward proxy binds (default `1080`). |
 | `--wireguard-start` | boolean | Optional | Enables and starts `wg-quick@<interface>` and the QUIC forward. |
 | `--wireguard-stop` | boolean | Optional | Tears the interface down and removes its transient packet rules. |
 | `--wireguard-reset` | boolean | Optional | Removes generated configs and packet rules; **keeps** the key pair and registry. |
 | `--wireguard-reinstall` | boolean | Optional | Full purge, package reinstall and re-key. Every spoke must re-register. |
 | `--dry-run` | boolean | Optional | Prints the files and commands the run would apply, without touching the host. |
 
-Flags are evaluated in lifecycle order — install, setup, peer changes, route publication, then daemon control, and `--status` last — so a whole bring-up fits in one invocation, still executes in the only order that works, and can report what it left behind.
+Flags are evaluated in lifecycle order — install, setup, peer changes, route publication, then daemon control, and `--status` last — so a whole bring-up fits in one invocation, still executes in the only order that works, and can report what it left behind. `--forward-proxy-server` runs after the tunnel is up, because the service requires it and binds an address that only exists then, and before `--status`, so one invocation can reconcile the service and report it.
 
 ### `--status` is the whole read-only surface
 
@@ -130,7 +137,7 @@ There is one information command, not one per kind of state. `--status` reports,
 
 ```
 role                interface           tunnel address      public key
-WireGuard state     HAProxy state       QUIC target
+WireGuard state     HAProxy state       forward proxy state    QUIC target
 peers               bindings per peer   handshake age / rx / tx / link state
 routing summary     resolved routes with the binding each matched
 unresolved hostnames and cross-deploy conflicts, when there are any
@@ -306,10 +313,12 @@ A hostname that resolves to nothing is **reported**, not dropped: a silently mis
 /etc/haproxy/haproxy.cfg                 generated edge gateway
 /etc/haproxy/domain2backend.map          SNI  -> be_tls_<peer>
 /etc/haproxy/domain2backend-http.map     Host -> be_http_<peer>
-/etc/sysctl.d/99-underpost-wireguard.conf  net.ipv4.ip_forward=1  (hub only)
+/etc/sysctl.d/99-underpost-wireguard.conf  net.ipv4.ip_forward=1  (both roles)
+/etc/systemd/system/underpost-forward-proxy.service  forward proxy unit   0600
 engine-private/deploy/conf.wireguard.json  peer registry (public keys only)
 iptables nat chains UNDERPOST_WG_PRE / UNDERPOST_WG_POST   QUIC DNAT
 firewalld permanent rules             80,443/tcp 443,51820/udp masquerade (hub)
+                                      rich rule 1080/tcp from 10.0.0.0/24   (hub)
                                       zone=trusted interface=<iface>        (spoke)
 ```
 
@@ -695,6 +704,7 @@ Reusing the peer id is the whole trick. A *new* id would leave the old entry in 
 | `/etc/wireguard/<iface>.conf` | interface config |
 | `/etc/sysctl.d/99-underpost-wireguard.conf` | IP forwarding drop-in |
 | `/etc/haproxy/haproxy.cfg` + both `.map` files | the generated gateway, config and maps together |
+| `underpost-forward-proxy.service` | the forward proxy unit, disabled and removed |
 | `UNDERPOST_WG_PRE` / `UNDERPOST_WG_POST` | the QUIC NAT chains |
 | firewalld ports and masquerade | withdrawn for the **recorded role**, using the same rule list that opened them |
 | `wg-quick@<iface>`, `haproxy` | stopped and disabled |
@@ -865,6 +875,220 @@ curl -sI -H 'Accept-Encoding: gzip, br' https://<host>/ | grep -i 'content-encod
 ```
 
 `Content-Encoding: gzip` (or `br`) with `Vary: Accept-Encoding` is the whole contract. A missing `Vary` is the one failure worth watching for, because a cache in front will hand a compressed body to a client that asked for none.
+
+---
+
+## Outbound forward proxy
+
+Everything above carries traffic **inbound** — the internet reaching a spoke. The forward proxy is the one path in the other direction: a request made *by* a spoke that has to leave from the VPS public IP rather than from the homelab's ISP address.
+
+The case that motivates it is the bandwidth guard. `underpost cron … vultr` runs in a CronJob inside a spoke cluster and calls the Vultr API about the edge VPS, so a direct call arrives at Vultr from a residential address. An API key scoped to the edge's address — which is the whole point of scoping one — rejects it. Proxied, the same call arrives from the machine it is asking about.
+
+```
+┌─ SPOKE (10.0.0.2) ─────────┐         ┌─ HUB (10.0.0.1) ────────────┐
+│ CronJob / any Node process │         │ underpost wireguard         │
+│  fetchViaForwardProxy(url) │──wg──►  │  --forward-proxy-server     │──► INTERNET
+│  Proxy-Authorization: …    │  :1080  │  binds 10.0.0.1 only        │    from the
+└────────────────────────────┘         └─────────────────────────────┘    VPS IP
+```
+
+Two paths, and only two:
+
+| Client request | Wire protocol | What the hub does |
+| --- | --- | --- |
+| `http://…` target | Forward request with an **absolute** request-URI | Relays the request to the origin and streams the answer back |
+| `https://…` target | `CONNECT host:443`, then TLS **inside the calling process** | Splices two TCP sockets and relays bytes it cannot read |
+
+The `https` split matters for the same reason `fe_https` does: the hub sees ciphertext. TLS is negotiated end to end between the caller and the origin, the certificate is verified there, and the VPS holds no key material for anything it proxies — the inbound design, applied outbound.
+
+### Security properties
+
+- **Bound to the tunnel address alone**, never `0.0.0.0`. There is no socket on the public IP to reach, so port `1080` is not exposed even where a firewall would allow it. `--forward-proxy-server-host` can name another address — a hub with a second tunnel, say — and warns when given a wildcard, which would leave the key as the only thing between the internet and an open relay.
+- **Authenticated on every request**, forward and `CONNECT` alike, with `Proxy-Authorization: Bearer $FORWARD_PROXY_API_KEY`. The tunnel establishes *which* machine is calling; the key establishes that it meant to. The comparison is constant-time, and an **unset key authorizes nothing** — the server refuses to start rather than relay for anyone.
+- **The proxy credential is never relayed onward.** `proxy-authorization` is dropped with the other hop-by-hop headers, so no origin ever sees the hub's key.
+- **Hub only.** `--forward-proxy-server` refuses to run where the registry records `role: client`. A proxy on a spoke would relay through the homelab's own ISP address — the exact thing a caller uses it to avoid — and the request would still succeed, so the failure would be silent.
+- **firewalld** admits the port from the recorded tunnel subnet only. Both `--wireguard-setup --server` and `--forward-proxy-server` reconcile the rich rule, and `--wireguard-reset` withdraws it from the same rule list.
+
+It is **not** a default route. Nothing is redirected into it, and `AllowedIPs` on every spoke is still the tunnel subnet alone. Only a caller that asks for the proxy uses it.
+
+Pods and other containers keep their normal network namespace. The spoke masquerades only traffic whose destination is the tunnel CIDR as its WireGuard address; the hub therefore sees the registered spoke address instead of an unknown Kubernetes pod CIDR. Existing spokes must regenerate and restart the interface once to install these lifecycle rules:
+
+```bash
+# 🟩 SPOKE
+node bin wireguard --wireguard-setup --client --wireguard-stop --wireguard-start
+```
+
+### Running it on the hub
+
+```bash
+# 🟦 HUB — any one of these three; the key both ends authenticate with
+export FORWARD_PROXY_API_KEY="$(openssl rand -hex 32)"          # this shell
+underpost env set FORWARD_PROXY_API_KEY "$(openssl rand -hex 32)" # the root env
+node bin env dd-cron production                                  # a deploy env, into ./.env
+
+# Installs and starts the underpost-forward-proxy service, then returns
+node bin wireguard --forward-proxy-server
+```
+
+**All three places are read, most explicit first:** the process environment, then the deploy env `underpost env <deploy-id> <environment>` selects into `./.env`, then the underpost root env. A CLI run is not a deploy — nothing loads an env file into `process.env` for it — so reading only the environment would ignore both files and report a key you had plainly set as missing. The bandwidth guard resolves every variable it reads the same way, its own `VULTR_*` keys included.
+
+```
+info  Forward proxy service reconciled  { service: 'underpost-forward-proxy', address: '10.0.0.1:1080',
+                                          tunnel: '10.0.0.0/24', unitChanged: true, state: 'active',
+                                          enabled: 'enabled', logs: 'journalctl -u underpost-forward-proxy -f' }
+```
+
+**The CLI does not stay attached.** The listener is a long-lived process, which a CLI invocation is not: a proxy held open by the shell that started it dies with that shell, does not survive a reboot, and gives you no way to ask whether it is running. So the command reconciles a unit — write, enable, start — and returns; the service is what binds the socket, by running this same command with a supervision marker set. One code path to the listener, not a second one only systemd takes.
+
+```bash
+node bin wireguard --forward-proxy-server --forward-proxy-server-host 10.0.0.1 --forward-proxy-server-port 1080
+systemctl status underpost-forward-proxy
+journalctl -u underpost-forward-proxy -f
+node bin wireguard --status          # reports the service alongside wg-quick and haproxy
+```
+
+#### It is idempotent
+
+Re-running the command is safe and cheap, which is what makes it usable from a bring-up script or a deploy job:
+
+| Run | What happens |
+| --- | --- |
+| First | Unit written, `daemon-reload`, `enable`, `restart` |
+| Again, nothing changed | `enable`, `start` — both no-ops on a running service. **No reload, no restart**, so established tunnels are not dropped |
+| Again, host, port or key changed | Unit rewritten, `daemon-reload`, `enable`, `restart` |
+
+There is exactly one service — the unit name is fixed at `underpost-forward-proxy`, so repeated runs converge on it rather than accumulating one per invocation, and a single active instance owns the port. Nothing fails because the service is already up.
+
+#### The generated unit
+
+Written to `/etc/systemd/system/underpost-forward-proxy.service`, root-owned and `0600` because it carries the proxy key. It is an output: the next run overwrites it.
+
+```ini
+[Unit]
+Description=Underpost edge forward proxy on 10.0.0.1:1080
+After=network-online.target wg-quick@wg0.service
+Wants=network-online.target
+Requires=wg-quick@wg0.service
+PartOf=wg-quick@wg0.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=dd
+WorkingDirectory=/home/dd/engine
+Environment=UNDERPOST_FORWARD_PROXY_SUPERVISED=1
+Environment=FORWARD_PROXY_API_KEY=<key>
+ExecStart=/usr/bin/node /home/dd/engine/bin wireguard --forward-proxy-server --forward-proxy-server-host 10.0.0.1 --forward-proxy-server-port 1080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target wg-quick@wg0.service
+```
+
+Four directives make the proxy and the tunnel **one lifecycle**, which is what `--wireguard-stop --wireguard-start` needs in order to leave a working proxy behind:
+
+- `Requires` — the address the proxy binds exists only while the interface is up, so the dependency is real rather than merely an ordering.
+- `PartOf` — stopping or restarting the tunnel stops or restarts the proxy with it.
+- `WantedBy=… wg-quick@wg0.service` — starting the tunnel brings the proxy back.
+- `Restart=always` with `StartLimitIntervalSec=0` — a bind that fails while the tunnel is still coming up retries every 5s instead of latching `failed`.
+
+`ExecStart` is built from the CLI entry point that was invoked and a Node binary the service can actually execute, so a global `underpost` install and a `node bin` checkout each produce a unit that works without either being hard-coded. The host and port are passed explicitly rather than re-resolved at start, so the service cannot bind somewhere other than where it was installed to.
+
+#### The Node binary a unit can run
+
+**systemd cannot execute a binary under `/root` or `/home`.** Those paths carry SELinux labels (`admin_home_t`, `user_home_t`) a unit cannot enter, so a perfectly good `nvm` install — the normal way Node lands on a root-administered VPS — produces a service that fails with `203/EXEC` and restarts forever, while `ls -l` and `test -x` on the binary look fine:
+
+```
+systemd[39285]: Failed to locate executable /root/.nvm/versions/node/v24.15.0/bin/node: Permission denied
+systemd[1]: underpost-forward-proxy.service: Main process exited, code=exited, status=203/EXEC
+```
+
+So the interpreter is chosen rather than assumed, before anything is written:
+
+1. **Candidates**, in order — the interpreter running the CLI, then `/usr/bin/node`, `/usr/local/bin/node`, `/bin/node`. One under a home directory goes **last**, not first, since it is the one systemd is likely to refuse.
+2. **It must exist** (`test -x`) and **run the engine's own major version**, so a leftover Node 16 in `/usr/bin` is passed over rather than started and failed on syntax.
+3. **systemd must be able to exec it**, asked of systemd itself with a transient unit — `systemd-run --uid=<service user> … node --version`. Nothing else reveals the SELinux refusal.
+4. **The unit's whole `ExecStart` must start**, probed the same way with `WorkingDirectory` set, because an interpreter systemd can exec still has to *read* the checkout it is pointed at.
+
+If no candidate passes, **no unit is installed** — and a unit an earlier run left behind is stopped and removed, so the host is not left in a restart loop by this tooling. The command fails with what it tried and why:
+
+```
+error  No Node binary the forward proxy service can execute
+       requires: Node v24
+       rejected: [ { candidate: '/usr/bin/node', reason: 'not present' },
+                   { candidate: '/root/.nvm/versions/node/v24.15.0/bin/node',
+                     reason: 'systemd cannot execute it: it is under a home directory, …' } ]
+       fix:      curl -fsSL https://rpm.nodesource.com/setup_24.x | sudo bash - && sudo dnf install -y nodejs
+```
+
+That is Phase 2's NodeSource install, which puts Node at `/usr/bin/node` where a unit can run it. A checkout under a home directory has the same hazard one step further along; if the second probe fails, move it somewhere a service can read (`/opt/underpost/engine`). `--dry-run` skips both probes, since they start transient units.
+
+`--wireguard-reset` withdraws the unit along with every other host artifact. To stop the proxy alone, `sudo systemctl disable --now underpost-forward-proxy` — the next `--forward-proxy-server` brings it back.
+
+#### Every proxied request is logged
+
+```
+http  10.0.0.2 GET api.vultr.com/v2/instances 200 1876 - 214.019 ms
+http  10.0.0.2 CONNECT api.vultr.com:443 200 5312 - 268.442 ms
+http  10.0.0.2 GET api.vultr.com/v2/plans 407 - - 0.203 ms
+```
+
+Refusals included — this is the one hop where a spoke's traffic leaves the topology, so an unattributed request through it is not something an operator should have to guess about. The forward path is logged by the engine's own `loggerMiddleware` (morgan, `skip: () => false`, so production logs too) and the `CONNECT` path in the same shape when the tunnel closes, where the byte count is the total relayed in both directions. All of it lands in the journal.
+
+### Calling it from a spoke
+
+```js
+import { fetchViaForwardProxy } from './src/server/forward-proxy.js';
+
+const { status, headers, body } = await fetchViaForwardProxy('https://api.vultr.com/v2/instances', {
+  headers: { Authorization: `Bearer ${process.env.VULTR_API_KEY}` },
+});
+```
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `method` | `GET` | |
+| `headers` | `{}` | `host` and `content-length` are filled in |
+| `body` | — | A string is sent as-is; an object is sent as JSON |
+| `timeout` | `30000` | Milliseconds, for the whole exchange |
+| `proxy` | environment | `{host, port, apiKey}`, overriding the variables below |
+
+It resolves to `{status, headers, body}` with `body` as a string — the caller parses it. Only `http:` and `https:` targets are supported; anything else throws before a socket is opened.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `FORWARD_PROXY_API_KEY` | — | **Required on both ends.** Unset on the server means it refuses to start; unset on the client means `fetchViaForwardProxy` throws rather than calling out unproxied. |
+| `FORWARD_PROXY_HOST` | `10.0.0.1` | Where the client dials. The server always binds its own tunnel address. |
+| `FORWARD_PROXY_PORT` | `1080` | Both ends. |
+
+Each is resolved from the process environment, then `./.env`, then the underpost root env — the same three places as on the hub. `fetchViaForwardProxy` uses the canonical proxy configuration factory unless its caller passes an endpoint; the bandwidth guard passes its resolved deploy configuration. With no key resolved, the guard calls the API directly, and every run reports which path it took: `via: 'forward-proxy 10.0.0.1'` or `via: 'direct'`.
+
+### Verifying it
+
+From a spoke, with `curl` rather than the client, so a failure is the proxy's and not the caller's:
+
+```bash
+# 🟩 SPOKE — the address the origin sees must be the VPS public IPv4
+curl -sS -x http://10.0.0.1:1080 \
+  --proxy-header "Proxy-Authorization: Bearer $FORWARD_PROXY_API_KEY" \
+  https://api.ipify.org
+```
+
+| Symptom | Likely cause | Check |
+| --- | --- | --- |
+| `407` on every request | Key mismatch between the two ends | Compare `FORWARD_PROXY_API_KEY` on hub and spoke; only `Bearer` is accepted |
+| `EHOSTUNREACH` / connection refused from a spoke | Tunnel down, service not listening, or firewalld rejected the port | Check `wg show wg0`, `systemctl status underpost-forward-proxy`, and `ss -lntp \| grep 1080`; re-run `--forward-proxy-server` on the hub to reconcile the service and rich rule |
+| Pod times out but the same command works on the spoke host | The spoke config predates tunnel-scoped masquerading, so the hub rejects the pod CIDR | On the spoke, run `--wireguard-setup --client`, then `--wireguard-stop --wireguard-start`; pod `hostNetwork` is not required |
+| The command reports `state: 'failed'` | Tunnel down, so the bind address does not exist yet | `sudo wg show wg0`, then `--wireguard-start` — the unit retries every 5s and comes up on its own |
+| `203/EXEC` in the journal, restart loop | A Node binary systemd cannot exec — an nvm install under `/root` | Re-run `--forward-proxy-server`: it now probes and refuses instead, and prints the NodeSource remedy. See [The Node binary a unit can run](#the-node-binary-a-unit-can-run) |
+| Refuses with "No Node binary the forward proxy service can execute" | No system Node of the engine's major version | `curl -fsSL https://rpm.nodesource.com/setup_24.x \| sudo bash - && sudo dnf install -y nodejs` |
+| Refuses with "cannot start this checkout" | The engine checkout is somewhere a unit cannot read | Move it out of `/root` or `/home` — `/opt/underpost/engine` — and re-run |
+| `state: 'activating'` | Restart backoff, not a failure | `journalctl -u underpost-forward-proxy -n 20` for the bind error it is retrying |
+| Service stopped after a tunnel restart | Expected only if the unit was never enabled: `PartOf` stops it with the tunnel and the `WantedBy` on `wg-quick@wg0` brings it back | `systemctl is-enabled underpost-forward-proxy`, then re-run `--forward-proxy-server` |
+| Refuses to run, says it runs on the hub | Run on a spoke | The registry records `role: client`; run it on the VPS |
+| Origin still sees the homelab IP | The caller never used the proxy | The guard logs `via`; every other caller has to use `fetchViaForwardProxy` explicitly |
+| `502` from the proxy | The origin refused the hub's connection | Reachability is the VPS's, not the spoke's — try the same URL on the hub |
 
 ---
 

@@ -298,6 +298,13 @@ node bin run cluster --k3s
 | `--disable-gateway-api` | Fall back to the Contour HTTPProxy stack (Gateway API + HTTP/3 is the default) |
 | `--disable-http3`       | Omit the QUIC/HTTP3 listener config and the `Alt-Svc` header                   |
 
+On RHEL and Rocky Linux, host configuration keeps SELinux in Enforcing mode. Kubeadm enables containerd SELinux labeling, while K3s installs its policy package and starts with `--selinux`. Because the kubeadm control-plane static pods and tigera-operator are unprivileged (`container_t`), `/etc/kubernetes`, `/var/lib/etcd`, and `/var/lib/calico` get a persistent `container_file_t` mapping before `kubeadm init`; without it the API server, scheduler, controller-manager, and etcd crash-loop on AVC denials reading `pki/sa.key` and the component kubeconfigs, and the Calico rollout stalls on `/var/lib/calico/mtu`. K3s relabels its own trees (`/var/lib/rancher`, `/etc/rancher`, `/var/lib/kubelet`, `/var/lib/cni`) after the installer drops the `k3s-selinux` policy module, and both confined runtimes share the hostPath PV roots (`/data`, `/opt/local-path-provisioner`) with `container_file_t` so unprivileged pods can use their volumes. Kind needs none of this: Docker runs without `--selinux-enabled`, so its node containers are never confined. A node found with SELinux Disabled (some LXD guest images ship that way) has an unlabeled filesystem, so `/.autorelabel` is scheduled instead of flipping it straight to Enforcing — the switch completes on the next boot. Diagnose deployment denials with:
+
+```bash
+sudo scripts/audit-selinux.sh --since boot
+sudo ausearch -m AVC,USER_AVC,SELINUX_ERR -ts recent -i
+```
+
 ### What `--dev` sets up on its own
 
 The dev cluster is a single command — there are no extra flags to remember, because everything the browser needs is derived from `conf.server.json` and applied by the runner itself:
@@ -834,6 +841,8 @@ node bin baremetal machine-node-hostname --dev --worker \
 | `--resume-join`               | Skip everything except the kubeadm join — assumes engine, Node.js, CRI-O, kubelet, and kubeadm are already installed. Retrieves a fresh token and joins directly.  |
 
 The join command is retrieved live from the control-plane over SSH (`kubeadm token create --print-join-command`) — no manual token paste. A failed `kubeadm join` aborts with a non-zero exit (no false-positive success).
+
+Rocky bare-metal images persist `SELINUX=enforcing`, restore SSH and sudoers contexts in the install root, and request a complete first-boot relabel. The initial boot can take longer and may reboot once before SSH becomes reachable. Custom SSH ports are registered as `ssh_port_t` before `sshd` starts. Node.js is installed system-wide; an NVM binary below `/root` or `/home` is not used by systemd services.
 
 ---
 
