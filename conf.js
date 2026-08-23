@@ -53,6 +53,7 @@ const DefaultConf = /**/ {
           'Recover',
           'EventBus',
           'ClientEvents',
+          'Repository',
         ],
         dogmadual: [
           'AppShellDogmadual',
@@ -190,6 +191,7 @@ const DefaultConf = /**/ {
           'PanelForm',
           'EventBus',
           'ClientEvents',
+          'Repository',
         ],
         chart: ['connectedScatterplotChart'],
         nexodev: [
@@ -410,6 +412,7 @@ const DefaultConf = /**/ {
             './src/client/public/nexodev/docs/references/PWA and SSR Views.md',
             './src/client/public/nexodev/docs/references/Main cluster lifecycle commands.md',
             './src/client/public/nexodev/docs/references/Observability and Events.md',
+            './src/client/public/nexodev/docs/references/Testing and Coverage.md',
           ],
         },
         proxy: [80, 443],
