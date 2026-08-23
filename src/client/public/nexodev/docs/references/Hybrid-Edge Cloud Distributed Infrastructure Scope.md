@@ -189,11 +189,10 @@ To ensure enterprise stability, physical nodes rely on segregated management net
 
 To prevent port binding conflicts and guarantee uptime visibility, custom ingress proxy utilities are introduced into the Kubernetes cluster topology.
 
-\| **Component** | **Component Type** | **Main Function & Responsibility** |
-
-\| `underpost-ingress` | L4/L7 Edge Port Router | • Unifies network entry on host ports 80/443. • Prevents port conflicts between Envoy Gateway and Contour. • Performs SNI passthrough while preserving SSL/TLS certificates intact end-to-end. |
-
-\| `underpost-gateway` | Static Server & Middleware Interceptor | • Utility Layer. • Intercepts `50x` downstream errors via `proxy_intercept_errors`. • Serves local static HTML pages from disk (`/var/www/static`) whenever applications fail or are offline during maintenance. |
+| COMPONENT         | COMPONENT TYPE                         | MAIN FUNCTION                                                                                                                                                                     |
+| ----------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| underpost-ingress | L4/L7 Edge Port Router                 | • Unifies network entry on host ports 80/443.<br>• Prevents port conflicts between Envoy Gateway and Contour.<br>• Performs SNI passthrough while preserving certificates intact. |
+| underpost-gateway | Static Server & Middleware Interceptor | • Utility Layer.<br>• Intercepts 50x errors via `proxy_intercept_errors`.<br>• Serves local static HTML from disk (`/var/www/static`) whenever the app fails or goes offline.     |
 
 ## 5. Architectural Reference: OSI Model Mapping
 
