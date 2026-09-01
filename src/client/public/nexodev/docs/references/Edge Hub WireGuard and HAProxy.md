@@ -14,13 +14,14 @@ Underpost exposes private cluster ingress through a static VPS. WireGuard carrie
 8. [Generated host artifacts](#generated-host-artifacts)
 9. [Adding a spoke without downtime](#adding-a-spoke-without-downtime)
 10. [SSH forwarding and remediation credentials](#ssh-forwarding-and-remediation-credentials)
-11. [Syncing the fleet](#syncing-the-fleet)
-12. [Resyncing a node](#resyncing-a-node)
-13. [Forward proxy](#forward-proxy)
-14. [Response compression and egress](#response-compression-and-egress)
-15. [Relationship to `underpost-ingress` and `underpost-gateway`](#relationship-to-underpost-ingress-and-underpost-gateway)
-16. [Command reference](#command-reference)
-17. [Verification](#verification)
+11. [Connecting to a node](#connecting-to-a-node)
+12. [Syncing the fleet](#syncing-the-fleet)
+13. [Resyncing a node](#resyncing-a-node)
+14. [Forward proxy](#forward-proxy)
+15. [Response compression and egress](#response-compression-and-egress)
+16. [Relationship to `underpost-ingress` and `underpost-gateway`](#relationship-to-underpost-ingress-and-underpost-gateway)
+17. [Command reference](#command-reference)
+18. [Verification](#verification)
 
 ---
 
@@ -422,6 +423,37 @@ A cluster node reports CPU, memory, disk and interface counters through the `nod
 
 The service listens on the node's tunnel address alone, which is where Prometheus already scrapes it (`node-exporter-hub`), so the counters never reach the public address. It is bound to `wg-quick@<interface>` and reads the same textfile directory the Vultr bandwidth guard writes to, so the hub's quota rides in with the rest of its metrics. Re-running is convergent: the pinned binary is downloaded only when the host is not already running that version, and the run fails if the service does not come up.
 
+## Connecting to a node
+
+```bash
+node bin wireguard --connect-uri --nodes hp-envy-iso-ram-rocky9
+node bin wireguard --connect-uri --nodes hp-envy-iso-ram-rocky9 --copy
+node bin wireguard --connect-uri
+```
+
+```
+ssh admin@192.168.1.191 -i ./engine-private/deploy/users/admin/id_rsa -p 22
+```
+
+A node is named by its document, so `hp-envy-iso-ram-rocky9` is
+`./engine-private/deploy/nodes/hp-envy-iso-ram-rocky9.json`. That document names the topology peer, the peer
+carries the `managementHost` the machine is reached at, and that address is the key
+`./engine-private/deploy/conf.users.json` registers an account, port and key path under — so the URI printed is
+the connection the cluster already holds rather than one composed by hand. Hubs resolve through their static
+public address instead, which no failed tunnel is part of.
+
+The join is the one `--sync`, `--cmd` and event remediation use, so a node you can be given a URI for is a node
+the fleet commands can reach. Empty `--nodes` lists the whole fleet, one line per node; `--copy` puts the output
+on the clipboard instead of printing it. A node that is the current machine has no hop to make and is reported as
+such rather than given a URI.
+
+An address with no entry in the registry is an error naming the command that fixes it:
+
+```
+[event] no SSH connection is registered for spoke 'homelab-a-hp-envy-iso-ram-rocky9' at 192.168.1.191;
+run: node bin ssh --user <user> --host 192.168.1.191 --user-add
+```
+
 ## Syncing the fleet
 
 ```bash
@@ -437,13 +469,38 @@ The nodes a fault can be repaired on are exactly the nodes the engine runs on, s
 Per node, in the checkout at `/home/dd/engine`, as **one** SSH session:
 
 ```bash
-underpost run clean .
-underpost run clean ./engine-private
+bash ./deploy/<deploy-id>/package.sh
+node bin host set GITHUB_TOKEN <github-token>
+underpost run clean
 underpost cmt --switch-repo <repo-engine> --target-branch <default-branch>
-underpost pull ./engine-private <account>/engine-private
-npm run fix
-npm install
+underpost cmt ./engine-private --switch-repo <repo-engine-private> --target-branch <default-branch>
+bash ./deploy/<deploy-id>/package.sh
+node bin host set ENGINE_SRC_REPO <repo-engine>
+node bin host set ENGINE_SRC_PRIVATE_REPO <repo-engine-private>
+<cron-reconcile-command>
+test -f /etc/systemd/system/underpost-event.service && <event-service-command>
+test -f /etc/systemd/system/underpost-forward-proxy.service && <forward-proxy-command>
 ```
+
+The deploy's package script runs on both sides of the switch, and that is the shape of the whole
+sequence: every step between the two is the node's own CLI, which cannot load from a checkout
+whose installed packages no longer match its manifest. The first run repairs the tree it finds —
+advisory, because a node whose tree predates that script still has to reach the switch that gives
+it one — and the second installs the manifest the switch just landed. Both are dropped for a
+source that belongs to no deploy, or to a deploy that ships no package script of its own.
+
+The switch moves the node between package scopes, and the steps after it are what makes
+everything running off that scope follow. The last two are scoped to the node's role, read from
+its `deploy/nodes/<node-name>.json` document:
+
+| Step                                                   | Why it is part of a sync                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `host set ENGINE_SRC_REPO` / `ENGINE_SRC_PRIVATE_REPO` | `deploy/lib/host.sh` reads the pair back out of the host configuration store to decide which source a later `prepare_host` pulls from. It is the only place the pair is named, so without this step the next host preparation resolves the default pairing and undoes the switch.                                                                                                                                              |
+| `<cron-reconcile-command>`                             | The CronJob pod bodies run the checkout that just changed, so the manifests are regenerated and republished against the new scope. A **control** node gets `node bin cron --setup-start --git --apply`; every other role gets nothing, because only the control plane can publish them — a worker carrying `kubectl` without cluster access rewrote the cron deploy's manifests and relabeled host directories before failing. |
+| `<event-service-command>`                              | The dispatcher is long-running and holds the code it started with. A **control** node gets `node bin event --service`; a **worker** or **hub** gets `node bin event --service-stop`, because only a control node can answer Alertmanager and repair the tunnel.                                                                                                                                                                |
+| `<forward-proxy-command>`                              | The hub's forward proxy runs the same checkout, so a **hub** gets `node bin wireguard --forward-proxy-server`; no other role owns one, and it refuses to configure itself off the hub.                                                                                                                                                                                                                                         |
+
+Each supervised service is reconciled through its own generator rather than `systemctl restart`: the units are generated, their `ExecStart` names a Node binary probed under systemd's own constraints, and a checkout switch can leave that path unexecutable — restarting then reruns a broken unit until systemd rate-limits it. Both act on the unit file's existence rather than on the unit being active, so a node that deliberately runs neither is left alone.
 
 A node is reached once, not once per step: each session re-reads the credential store, re-authenticates and re-enters the checkout, and a step could otherwise land on a different session than the one before it. The steps are chained with `&&`, and each echoes a `[sync]` line first, so the last one printed names the step a failed run stopped at.
 
@@ -451,7 +508,7 @@ The engine's default branch is resolved **on the controller** and named explicit
 
 `--repo-engine` takes `owner/repo` or a clone URL and defaults to the configured account's `engine`; `engine-private` follows `GITHUB_USERNAME`, because the two are one checkout on the node. The engine step switches the remote rather than pulling into whatever it already tracked, so pointing a fleet at a fork is the same command as keeping it on the current one.
 
-The sequence halts at the first failing step the later ones depend on — installing over a checkout whose pull failed would deploy stale sources under a fresh version. `npm run fix` is the one exception: `npm audit` exits non-zero while any advisory remains, which is a finding to report rather than a reason to skip the install. One node failing never stops the others; each is reported with the identity it ran as, and the command exits non-zero if any failed.
+The sequence halts at the first failing step the later ones depend on — installing over a checkout whose pull failed would deploy stale sources under a fresh version. The advisory steps are the exceptions, neutralized in place so they cannot stop the sequence: the first package script, and the two reconciles at the end, which belong to subsystems a given node may not run at all. One node failing never stops the others; each is reported with the identity it ran as, and the command exits non-zero if any failed.
 
 ---
 
@@ -459,12 +516,12 @@ The sequence halts at the first failing step the later ones depend on — instal
 
 Every node's state comes from four files, and each one has exactly one command that reapplies it. Nothing here is destructive; all of it is idempotent.
 
-| Source | Reapplied by | Where it runs |
-| --- | --- | --- |
-| `deploy/nodes/<hostname>.json` | `node bin wireguard --node-config` | the node itself |
-| `conf.wireguard.json` | `node bin wireguard --wireguard-setup --wireguard-restart` | the node itself |
-| `conf.users.json` | `node bin ssh --user <u> --host <h> --user-add` | the control plane |
-| `conf.event.json` | `node bin monitor --sync-prom` | the control plane |
+| Source                         | Reapplied by                                               | Where it runs     |
+| ------------------------------ | ---------------------------------------------------------- | ----------------- |
+| `deploy/nodes/<hostname>.json` | `node bin wireguard --node-config`                         | the node itself   |
+| `conf.wireguard.json`          | `node bin wireguard --wireguard-setup --wireguard-restart` | the node itself   |
+| `conf.users.json`              | `node bin ssh --user <u> --host <h> --user-add`            | the control plane |
+| `conf.event.json`              | `node bin monitor --sync-prom`                             | the control plane |
 
 A full fleet reconcile, in dependency order:
 
@@ -481,7 +538,7 @@ node bin event --list          # every repair and notify route must resolve
 node bin event wireguard-spoke-down --e2e-test --dry-run=false
 ```
 
-`--wireguard-setup` rewrites the interface from topology and reapplies the host rules, including placing the tunnel interface in the `trusted` firewalld zone. **That zone is what makes spoke-to-spoke traffic work at all**: firewalld's forward chain ends in `reject with icmpx admin-prohibited`, so an unzoned `wg0` has its *forwarded* packets dropped while the hub still answers on its own tunnel address. The symptom is a tunnel that passes every health check while one spoke cannot reach another — and it is what the `wireguard-spoke-down` probe measures.
+`--wireguard-setup` rewrites the interface from topology and reapplies the host rules, including placing the tunnel interface in the `trusted` firewalld zone. **That zone is what makes spoke-to-spoke traffic work at all**: firewalld's forward chain ends in `reject with icmpx admin-prohibited`, so an unzoned `wg0` has its _forwarded_ packets dropped while the hub still answers on its own tunnel address. The symptom is a tunnel that passes every health check while one spoke cannot reach another — and it is what the `wireguard-spoke-down` probe measures.
 
 Verify the property directly, from the control plane:
 
@@ -592,7 +649,9 @@ TLS is terminated exactly once, at the cluster's own ingress. See [Main cluster 
 | `--wireguard-reset` / `--wireguard-reinstall`                    | Remove host state or re-key it                                                                           |
 | `--sync`                                                         | Bring every registered node's engine checkout up to date                                                 |
 | `--node-exporter`                                                | Provision the host metrics collector as a systemd service on the selected hubs                           |
-| `--nodes <names>`                                                | Comma-separated node documents `--sync` and `--node-exporter` act on                                     |
+| `--connect-uri`                                                  | Print the SSH command that reaches each node named by `--nodes`                                          |
+| `--copy`                                                         | Copy the `--connect-uri` output to the clipboard instead of printing it                                  |
+| `--nodes <names>`                                                | Comma-separated node documents `--sync`, `--node-exporter` and `--connect-uri` act on                    |
 | `--repo-engine <repo>`                                           | Engine repository `--sync` switches to, as `owner/repo` or a clone URL                                   |
 
 ## Verification

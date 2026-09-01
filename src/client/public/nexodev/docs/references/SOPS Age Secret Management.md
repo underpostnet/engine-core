@@ -23,6 +23,210 @@ Git-native encrypted Kubernetes secrets for 100% self-hosted bare-metal `kubeadm
 
 ## Architecture
 
+### The three configuration domains
+
+Every environment value on the cluster belongs to exactly one domain, and each domain owns one
+durable source, one local runtime, and one cluster projection. Nothing is configuration in
+general — a value is app, host, or workload-secret, and which one it is decides the command that
+touches it.
+
+| Domain   | Owns                                   | Durable source                                                                      | Local runtime                             | Cluster projection                                                |
+| -------- | -------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------- |
+| `app`    | one deployment's runtime environment   | `engine-private/conf/<deployId>/.env.<env>[.<sub-conf>]` + `.env.<env>.oci` overlay | working-tree `./.env*` + `Config.default` | `<deployId>-<env>-env` Secret                                     |
+| `host`   | the node-level operational environment | `engine-private/deploy/scopes/<scope>.env.<env>`, one file per scope, mode `0600`   | host configuration store `<root>/.env`    | `underpost-config` Secret, and one scoped projection per workload |
+| `secret` | workload credentials                   | `engine-private/secrets/<namespace>/<name>.enc.yaml` (SOPS/Age)                     | host configuration store, via `host`      | one Kubernetes Secret per name                                    |
+| `state`  | one container's live execution state   | none — an observation is only true of a running container                           | container state store `<root>/.state`     | in-pod `/_internal/*` endpoints                                   |
+
+### Configuration scopes inside the host domain
+
+A domain says _who owns_ a value. It does not say _who may see it_, and the host domain's durable
+source answers to several unrelated concerns at once — the edge, machine provisioning, the package
+registries, the scheduled jobs. Projecting that file to a workload handed it all of them.
+
+`src/server/runtime/config-scope.js` answers two separate questions, and only the first by pattern.
+
+**Ownership** — `CONFIG_OWNERSHIP` says where a key lives. A family pattern is right here: a new
+`MAAS_` key is a provisioning key wherever it came from.
+
+**Visibility** — `SCOPE_ENTITLEMENTS` says what a workload may read, and is an **exact key list**. A
+pattern there would mean the next credential added to a family silently inherits that family's
+audience — `GITHUB_NEW_SENSITIVE_TOKEN` becoming cron-visible because `GITHUB_` once was. The
+policy is therefore readable from the table alone, with nothing inferred from naming.
+
+Owning a key is not by itself permission to ship it to a workload. A value a workload does not
+consume is not projected: `DEFAULT_SSH_KEY_PATH` named a path that exists only on a host, and
+handing it to a pod made the SSH resolver prefer it over the Secret volume holding the real key.
+
+| Scope        | Owns                                                                | Consumed by                  |
+| ------------ | ------------------------------------------------------------------- | ---------------------------- |
+| `runtime`    | process settings with no credential value (`NODE_ENV`, `TIME_ZONE`) | every scope                  |
+| `host`       | the edge, observability, cluster mail, deployment targets           | host CLI, `underpost-config` |
+| `cron`       | `VULTR_*`, `DDNS_*`                                                 | the scheduled jobs           |
+| `baremetal`  | `MAAS_*`, `DB_PG_MAAS_*`, `TFTP_ROOT`, `NETMASK`, `NFS_EXPORT_PATH` | `underpost baremetal`        |
+| `publishing` | `NPM_*`, `DOCKER_HUB_*`, `POSTMAN_*`                                | release and image publishing |
+| `app`        | a deployment's database, sessions and integrations                  | the deployment's own runtime |
+
+Entitled to `cron`, by name: `VULTR_API_KEY`, `VULTR_INSTANCE_ID`, `VULTR_BANDWIDTH_THRESHOLD`,
+`VULTR_VPS_IP`, `VULTR_SSH_USER`, `VULTR_SSH_PORT`, `FORWARD_PROXY_API_KEY`, `FORWARD_PROXY_HOST`,
+`FORWARD_PROXY_PORT`, `DEFAULT_SSH_USER`, `DEFAULT_SSH_HOST`, `DEFAULT_SSH_PORT`, `GITHUB_TOKEN`,
+`GITHUB_USERNAME`, `DDNS_HOST`, `DDNS_PROVIDER`, `DDNS_API_KEY`, `DDNS_USER`, `HTTP_PLAIN_IP_URL`,
+`DEFAULT_DEPLOY_HOST`. Nothing else. On the reference fleet that is **17 of 86** keys.
+
+Classification is closed. A key no rule places is reported by key name and refused, never defaulted
+into a scope:
+
+```text
+configuration source rejected: domain=host deploy=dd-cron env=production key=NEW_CREDENTIAL
+reason=no ownership rule matches; declare it in CONFIG_OWNERSHIP
+```
+
+### Node Roles and Capability Boundaries
+
+The topology defines exactly three roles — `hub`, `control`, `worker` — and there is no
+`control-plane`, `edge`, `gateway`, `master` or `server` role. `src/server/network/node-capability.js`
+holds what each may do, derived from the gates the platform already enforces.
+
+| Capability                    |  hub   | control | worker |
+| ----------------------------- | :----: | :-----: | :----: |
+| host configuration            |  yes   |   yes   |  yes   |
+| WireGuard hub                 |  yes   |   no    |   no   |
+| WireGuard spoke               |   no   |   yes   |  yes   |
+| HAProxy                       |  yes   |   no    |   no   |
+| forward proxy                 |  yes   |   no    |   no   |
+| edge routing                  |  yes   |   no    |   no   |
+| Kubernetes node runtime       |   no   |   yes   |  yes   |
+| Kubernetes administration     | **no** |   yes   | **no** |
+| cluster Secret administration | **no** |   yes   | **no** |
+| cron publication              | **no** |   yes   | **no** |
+| event service                 |   no   |   yes   |   no   |
+| node metrics                  |  yes   |   yes   |  yes   |
+
+**`host` domain ≠ Kubernetes administration.** Every role carries `underpost host`, because host
+configuration is node-level operational configuration. It is not permission to administer the
+cluster, and neither is joining one: a worker runs the kubelet and holds `kubelet.conf`, which is
+node runtime, not `/etc/kubernetes/admin.conf`.
+
+- `hub` — Kubernetes administration: **no**. It is a VPS outside the cluster, and not a Kubernetes
+  node at all. HAProxy and the forward proxy are hub-only and refuse to configure themselves
+  elsewhere; TLS is never terminated there.
+- `control` — Kubernetes administration: **yes, only where required**. It alone initializes the
+  control plane, publishes CronJobs, administers cluster Secrets and runs the event dispatcher.
+- `worker` — Kubernetes administration: **no**. It joins and runs workloads; it never publishes
+  CronJobs, owns the dispatcher, or writes cluster Secrets.
+
+`assertRoleCapability` refuses an operation a role does not hold, naming the operation, the
+capability and what the role does hold — and fails closed on a role the table does not define.
+
+Node bring-up performs no cluster Secret administration. Secret projection is part of the control
+node's reconciliation (`cron --setup-start --apply`), never part of a node joining the cluster.
+
+The identities stay separate: a WireGuard peer identity, the `managementHost` SSH identity in
+`conf.users.json`, a Kubernetes credential and an Underpost role are four different things, and
+remediation resolves its credentials from the management-host registry rather than from ambient
+defaults.
+
+### Cron environment delivery
+
+The CronJob pods receive their environment **injected**, never from a file:
+
+- the `underpost-cron-env` Secret is built from the `cron` scope of the host source, so its key set
+  is derived rather than hand-listed and cannot drift from the ownership table;
+- `NODE_ENV` is rendered into the manifest as a container `env` entry, which wins over `envFrom`, so
+  the environment the manifest resolved is the environment the pod runs;
+- the shared mirror at `/opt/engine` carries **no `.env.*` at any environment**. It keeps
+  `conf.*.json`, which hold `env:` references rather than values.
+
+The pod body is therefore `node bin cron …` alone. `app load` is not run there: it materializes a
+deployment's environment from that deployment's env file, and a workload has neither the file nor a
+reason to write one into a tree every `container_t` process on the node can read.
+
+### Migration — complete
+
+`underpost host setup` splits, verifies, then retires, in that order:
+
+1. `split` writes `engine-private/deploy/scopes/<scope>.env.<env>` at mode `0600`, refusing any key
+   no scope claims rather than parking it somewhere convenient;
+2. `verifySplit` proves every key of the unsplit source is present, once, under its owner, with an
+   equal value;
+3. `retireLegacySource` removes the unsplit file **only** when step 2 is clean. A split that dropped
+   or altered a key leaves the original in place.
+
+Each step is idempotent, and `host read` prefers the scoped sources whenever they exist. On the
+reference fleet the migration has run: `engine-private/conf/dd-cron/.env.production` is retired and
+there is **one durable source per scope**, with no dual-source model remaining. `host publish`
+writes back through the same scope table, so no command can recreate the unsplit file.
+
+The **OCI override** is an app-domain concern and only an app-domain concern: `.env.<env>.oci`
+overlays the deployment source when the consumer is a container image rather than this host, so
+`app apply` — whose Secret is read only by pods — applies it unconditionally, while `app load` on
+a workstation does not.
+
+An **instance** is a deployment too. `--args instance-id=<id>` moves the app domain onto that
+instance's own `engine-private/conf/<deployId>/instances/<id>/env/<env>.env` and its own
+`<deployId>-<instanceId>-<env>-env` Secret, so an instance's runtime environment is managed
+through the same four verbs rather than by editing the private conf tree by hand.
+
+The `secret` domain has no store of its own by design. A decrypted credential is node-local
+configuration, so `secret load` lands it in the host domain's store rather than in a fifth
+place that would then have to be kept in sync.
+
+Two stores exist on a node and never share a file: the host configuration store (`<root>/.env`,
+owned by the `host` domain) and the container state store (`<root>/.state`, owned by the
+`state` domain). Different owners, different lifetimes — host configuration is provisioned
+onto a node and survives, container status resets with the container. Key-level access follows
+that ownership: `underpost host get|set|delete|list` for the first, `underpost state …` for the
+second. There is no third command over either file.
+
+#### The `state` domain
+
+`state` is the runtime monitoring / telemetry layer: an agent that observes a workload's live
+container execution state, health indicators and performance metrics, and exports them
+off-cluster. Its base module is `src/server/runtime/runtime-status.js`, which defines the
+observation contract and serves it in-pod on `/_internal/status`, `/_internal/ready`,
+`/_internal/health` and `/_internal/telemetry`.
+
+It is the one domain with no durable source, and the canonical verbs bend to that rather than
+pretending otherwise:
+
+| action    | for the state domain                                                                     |
+| --------- | ---------------------------------------------------------------------------------------- |
+| `setup`   | provisions the container state store, then takes a first observation                     |
+| `load`    | collects from the **live workload** — over the monitor's own exec transport — not a file |
+| `publish` | **exports the observation off-cluster** rather than writing a source back                |
+| `apply`   | stamps a contract phase into the live runtime (`--args phase=running-deployment`)        |
+| `status`  | the observation, plus where this agent read it from                                      |
+| `rotate`  | drops a latched status and re-stamps from a fresh observation                            |
+| `clean`   | removes the container state store                                                        |
+
+`publish` is how a deployment reports itself to CI. Under GitHub Actions the observation becomes
+`::notice::` / `::error::` workflow commands on stdout — the only transport that survives the SSH
+hop a remote deploy runs over — plus `$GITHUB_OUTPUT` and `$GITHUB_STEP_SUMMARY` when the job is
+running on the runner itself. Anywhere else it is JSON on stdout. The far side is marked by
+`RUN_QUIET_CI`, which the CD workflows export explicitly because `GITHUB_ACTIONS` is
+runner-local and does not travel over SSH:
+
+```yaml
+# .github/workflows/cyberia-server.cd.yml
+export RUN_QUIET_CI=github
+bash /home/dd/engine/deploy/cyberia-server/deploy.sh
+```
+
+```bash
+# deploy/cyberia-server/deploy.sh — the canonical source for that repo's deploy scripts
+deploy_step "Export mmo-server runtime state" \
+    sudo -n -- /bin/bash -lc \
+    "cd $ENGINE_ROOT && RUN_QUIET_CI=${RUN_QUIET_CI:-} node bin state publish \
+      --env production \
+      --args deploy-id=dd-cyberia,instance-id=mmo-server"
+```
+
+Container status is written to this store and to no other. An in-pod lifecycle hook stamps it
+with `underpost state set container-status …`, and the deploy monitor reads it back the same
+way; routing it through the host configuration store instead let a value outlive the container
+that produced it.
+
+### Store layout
+
 Single source of truth per concern:
 
 | Concern                | Location                                                | Git tracked |
@@ -89,11 +293,12 @@ sops --version
 age --version
 ```
 
-This is implemented as `UnderpostSecret.API.sops.installTooling()` in [secrets.js](src/cli/secrets.js), which owns the `SOPS_VERSION` / `AGE_VERSION` pins — verify them against current upstream releases before a fresh host build. `UnderpostCluster.API.initHost()` calls it alongside the existing Helm/Kind installs rather than carrying a second copy, and it reuses `Underpost.baremetal.getHostArch()` instead of a second `uname` parse. Idempotent either way: an already-resolvable binary is left untouched.
+This is implemented as `UnderpostSecret.API.installTooling()` in [secrets.js](src/cli/secrets.js), which owns the `SOPS_VERSION` / `AGE_VERSION` pins — verify them against current upstream releases before a fresh host build. `UnderpostCluster.API.initHost()` calls it alongside the existing Helm/Kind installs rather than carrying a second copy, and it reuses `Underpost.baremetal.getHostArch()` instead of a second `uname` parse. Idempotent either way: an already-resolvable binary is left untouched.
 
 ```bash
-# Tooling only, no cluster host initialization.
-node bin secret --install-tools
+# Tooling, keypair, creation rules, encrypt, and apply — idempotent, so this is also the
+# tooling install on a host that has nothing else to do.
+node bin secret setup
 
 # Or as part of full host provisioning.
 node bin cluster --init-host
@@ -172,7 +377,7 @@ sudo install -o root -g underpost-secrets -m 0640 \
 
 > Mode `0640` is only acceptable when the group is a dedicated secrets group with a known membership list. `assertKeyFile()` rejects **any** group- or world-readable bit by default (it requires `0600`/`0400`), so option 2 needs the key placed where root reads it at `0600` and the operator using their own copy. Prefer option 1.
 
-`UnderpostSecret.API.sops.assertKeyFile()` fails closed on both counts — a missing key error names every candidate path it checked, including `/home/$SUDO_USER/.config/sops/age/keys.txt` when a key is found there, so the identity mismatch is diagnosable from the message alone rather than presenting as "decryption failed".
+`UnderpostSecret.API.assertKeyFile()` fails closed on both counts — a missing key error names every candidate path it checked, including `/home/$SUDO_USER/.config/sops/age/keys.txt` when a key is found there, so the identity mismatch is diagnosable from the message alone rather than presenting as "decryption failed".
 
 **Back up the private key offline before encrypting anything.** A lost Age private key with no offline copy means every encrypted manifest in Git is permanently unrecoverable.
 
@@ -266,7 +471,7 @@ These three are not interchangeable, and picking the wrong one corrupts the mani
 
 Two failure modes to avoid:
 
-**Never run `sops -e -i` (or `sops -e`) on a file that already contains a `sops:` block.** Encryption is not idempotent: a second pass treats the existing metadata as ordinary content and wraps the whole document again, producing a doubly-encrypted file whose outer `mac` no longer matches the inner one. Recovering it means decrypting twice by hand, and only if you still hold the exact recipient set from both passes. `underpost secret sops --encrypt` refuses a source that already carries sops metadata for this reason.
+**Never run `sops -e -i` (or `sops -e`) on a file that already contains a `sops:` block.** Encryption is not idempotent: a second pass treats the existing metadata as ordinary content and wraps the whole document again, producing a doubly-encrypted file whose outer `mac` no longer matches the inner one. Recovering it means decrypting twice by hand, and only if you still hold the exact recipient set from both passes. `underpost secret publish` refuses a source that already carries sops metadata for this reason.
 
 **The redirect form truncates its target before sops runs.** `sops -e src.yaml > out.enc.yaml` has the shell create/empty `out.enc.yaml` first; if sops then fails — wrong recipient, unreadable key, malformed input — you are left with a zero-byte file where a working manifest used to be, and `set -e` does not undo it. Stage and move instead:
 
@@ -280,7 +485,7 @@ sops --config engine-private/secrets/.sops.yaml --encrypt \
 rm -f engine-private/secrets/default/postgres-secret.enc.yaml.staged
 ```
 
-`UnderpostSecret.API.sops.encrypt()` does exactly this — stage, validate the envelope, then `moveSync` — and refuses to overwrite an existing manifest without `--force`.
+`UnderpostSecret.API.encrypt()` does exactly this — stage, validate the envelope, then `moveSync` — and refuses to overwrite an existing manifest without `--force`.
 
 ### 2.4 Encrypted result
 
@@ -455,9 +660,23 @@ sudo -E SOPS_AGE_KEY_FILE=/root/.config/sops/age/keys.txt \
 DRY_RUN=1 NAMESPACE=cyberia ./src/cli/scripts/sops-apply.sh
 ```
 
-### 3.2 `UnderpostSecret` platform
+### 3.2 `UnderpostSecret` domain
 
-The `secret` command dispatches on `Underpost.secret[<platform>]` ([index.js:424-451](src/cli/index.js#L424-L451)). The `sops` platform is implemented in [secrets.js](src/cli/secrets.js) as `UnderpostSecret.API.sops` — read that file for the authoritative behavior; it is not duplicated here.
+`secret` is one of the three configuration domains, registered from the shared factory in [domains.js](src/cli/domains.js) so its seven actions and five flags are the same as `host`'s and `app`'s. The SOPS/Age implementation behind them is [secrets.js](src/cli/secrets.js) as `UnderpostSecret.API` — read that file for the authoritative behavior; it is not duplicated here.
+
+Each action is one direction of travel, identically on all three domains:
+
+| action    | direction                              |
+| --------- | -------------------------------------- |
+| `setup`   | onboard the domain, idempotently       |
+| `load`    | durable source → local runtime         |
+| `publish` | local runtime → durable source         |
+| `apply`   | durable source → live cluster          |
+| `status`  | read-only report                       |
+| `rotate`  | replace the projection or the identity |
+| `clean`   | withdraw local traces                  |
+
+Everything a single domain once carried its own flag for — an Age recipient, a secret name list, a sub-configuration — passes through `--args` instead, so the visible surface does not grow when one domain gains a parameter.
 
 | Method                                    | Purpose                                                                                  |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -475,58 +694,27 @@ The `secret` command dispatches on `Underpost.secret[<platform>]` ([index.js:424
 | `writeCreationRecipients(recipients)`     | Rewrites that rule in place, collapsing any folded form to one line                      |
 | `init()`                                  | Generates the keypair and `.sops.yaml`; never overwrites an existing key                 |
 | `encrypt(plaintextPath, namespace)`       | Encrypts into the store and shreds the plaintext source                                  |
-| `apply(namespace, options)`               | Decrypts and applies every manifest for a namespace                                      |
+| `applyStore(namespace, options)`          | Decrypts and applies every manifest for a namespace                                      |
 | `applyManifest(path, namespace, options)` | Streams one manifest through `sops --decrypt` into `kubectl apply -f -` under `pipefail` |
 | `applyIfPresent(name, namespace)`         | Applies from the store when present; returns `false` so callers use the origin seed path |
-| `rotate(recipient, options)`              | Re-keys every manifest onto a new recipient; `pruneRecipients` revokes the old ones      |
+| `rotateRecipient(recipient, options)`     | Re-keys every manifest onto a new recipient; `pruneRecipients` revokes the old ones      |
 | `purge(name, options)`                    | Deletes the live Secret and archives (or with `force`, deletes) its manifest             |
 | `list()`                                  | Lists manifests and their recipients from plaintext metadata, no private key required    |
 | `hasBinary(bin)`                          | Shared PATH probe behind `assertTooling` and `installTooling`                            |
 | `assertTooling(bins)`                     | Fails fast with an actionable message when `sops`/`age-keygen` are missing               |
 | `installTooling()`                        | Idempotent install of the pinned `sops` and `age` binaries; owns both version pins       |
-| `setup(names, options)`                   | End-to-end onboarding: tooling, keypair, creation rules, encrypt, validate, apply        |
-| `status(filter, options)`                 | Read-only report of tooling, key, rules, stored manifests, drift, and coverage           |
+| `setupStore(names, options)`              | End-to-end onboarding: tooling, keypair, creation rules, encrypt, validate, apply        |
+| `statusReport(filter, options)`           | Read-only report of tooling, key, rules, stored manifests, drift, and coverage           |
 
 `installTooling()` is the single source of truth for host provisioning — `underpost cluster --init-host` calls it rather than carrying its own copy of the download logic.
 
-CLI surface:
+CLI surface — every domain carries the identical action set and the identical five flags:
 
 ```bash
-# Install the sops and age binaries only, with no cluster host initialization.
-# The platform argument is optional; it defaults to "sops".
-node bin secret --install-tools
-
-# One-time: generate the Age keypair and .sops.yaml creation rule.
-node bin secret sops --init
-
-# Encrypt a plaintext manifest authored in tmpfs (source is shredded).
-node bin secret sops --encrypt /dev/shm/underpost-secrets/postgres-secret.yaml --namespace default
-
-# Inventory (no private key needed).
-node bin secret sops --list
-
-# Decrypt + apply the whole namespace, streamed.
-node bin secret sops --apply --namespace default
-node bin secret sops --apply --namespace default --dry-run
-
-# Rotate onto a new recipient (see Key Rotation).
-node bin secret sops --rotate --recipient age1… --dry-run
-node bin secret sops --rotate --recipient age1…
-
-# Emergency purge (see Emergency Purge).
-node bin secret sops --purge postgres-secret --namespace default --dry-run
-node bin secret sops --purge postgres-secret --namespace default
-
-# End-to-end onboarding, and the read-only report of what it produced.
-# Both act on the store itself, so they resolve ahead of the platform argument.
-node bin secret --setup                                   # whole data tier
-node bin secret --setup mongodb-secret,mongodb-keyfile --namespace prod
-node bin secret --setup postgres-secret --args "password=s3cr3t"
-# Every domain carries the identical action set and the identical five flags.
 #   actions: setup | load | publish | apply | status | rotate | clean
 #   flags:   --env <env> --namespace <ns> --args <k=v,...> --dry-run --force
 
-# ── workload secrets (SOPS/Age encrypted store) ───────────────────────────────
+# ── workload cluster secrets (SOPS/Age encrypted store) ───────────────────────
 node bin secret setup                                     # tooling + key + rules + encrypt + apply
 node bin secret setup --args names=grafana-admin --namespace default
 node bin secret setup --dry-run                           # validate, leave the cluster alone
@@ -537,18 +725,30 @@ node bin secret apply                                     # store -> cluster Sec
 node bin secret load                                      # store -> local runtime env (npm run dev)
 node bin secret publish --args path=./plaintext.yaml      # plaintext -> encrypted store
 node bin secret rotate --args recipient=age1...           # re-key onto a new Age recipient
-node bin secret clean --args names=postgres-secret --force
+node bin secret rotate --args "recipient=age1...,prune=true" --force
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,token=<new>,deploy-id=dd-cyberia"
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,token=<new>,deploy-id=dd"   # whole dd.routes fleet
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,deploy-id=dd" --dry-run
+node bin secret clean --args names=postgres-secret --force          # archives the manifest
+node bin secret clean --args "names=postgres-secret,delete=true" --force
 
-# ── host configuration (node-level operational environment) ───────────────────
+# ── host cluster configuration (node-level operational environment) ───────────
 node bin host setup                                       # resolve, validate, load
-node bin host load                                        # source -> root env store
+node bin host load                                        # source -> host configuration store
 node bin host load --env development
 node bin host apply --env production --namespace default  # -> underpost-config Secret
 node bin host status
 node bin host rotate                                      # re-project the Secret
 node bin host clean --force
 
-# ── app environment (one deployment's runtime configuration) ──────────────────
+# Key-level CRUD on the same store, on the domain that owns it. Alongside the canonical seven
+# rather than inside them: those are a bulk-lifecycle verb set with no place for per-key reads
+# and writes. Only a domain owning a key-value store carries them.
+node bin host get DEPLOY_ID
+node bin host set GITHUB_USERNAME underpostnet
+node bin host list --filter ssh
+
+# ── app environment, and its OCI override (one deployment's runtime config) ───
 node bin app setup --env development
 node bin app load --env development
 node bin app load --env development --args sub-conf=nexodev-dev-api
@@ -556,9 +756,25 @@ node bin app apply --env production --namespace default   # -> <deployId>-<env>-
 node bin app status --args deploy-id=dd-core
 node bin app rotate --env production
 node bin app clean --force
+
+# ── custom instance environment (an instance is a deployment too) ─────────────
+node bin app load --env development --args deploy-id=dd-cyberia,instance-id=mmo-client-forest
+node bin app status --args deploy-id=dd-cyberia,instance-id=mmo-server
+node bin app apply --env production --args deploy-id=dd-cyberia,instance-id=mmo-server
+
+# ── runtime state (live execution state, health and metrics) ──────────────────
+node bin state status --args deploy-id=dd-cyberia,instance-id=mmo-server
+node bin state load --args deploy-id=dd-cyberia,instance-id=mmo-server   # collect from the pods
+node bin state publish --args deploy-id=dd-cyberia,instance-id=mmo-server # export off-cluster
+node bin state apply --args phase=running-deployment                      # stamp the live runtime
+node bin state get container-status --plain                               # key-level, in-pod
+node bin state rotate                                                     # clear a stale latch
+node bin state clean
 ```
 
-An explicit setup list is isolated: `--setup grafana-admin` validates and applies only `grafana-admin`. Unrelated manifests sealed to another host's recipient do not block that targeted operation. Omitting the list retains the full data-tier setup behavior.
+`app apply` resolves `.env.<env>.oci` over the deployment source before projecting the Secret, because that Secret is read only by pods. `app load` on a host does not — the overlay describes a container runtime, not this machine. That asymmetry is the whole of the OCI override, and it lives in the app domain alone.
+
+An explicit setup list is isolated: `secret setup --args names=grafana-admin` validates and applies only `grafana-admin`. Unrelated manifests sealed to another host's recipient do not block that targeted operation. Omitting the list retains the full data-tier setup behavior.
 
 ### 3.3 Cluster initialization hook
 
@@ -568,7 +784,7 @@ Secrets must exist before the StatefulSets that mount them, so the store is appl
 // src/cli/cluster.js — UnderpostCluster.API.init()
 if (options.postgresql) {
   if (options.pullImage) Underpost.cluster.pullImage('postgres:latest', options);
-  if (!Underpost.secret.sops.applyIfPresent('postgres-secret', options.namespace))
+  if (!Underpost.secret.applyIfPresent('postgres-secret', options.namespace))
     shellExec(
       `sudo kubectl create secret generic postgres-secret --from-file=password=/home/dd/engine/engine-private/postgresql-password --dry-run=client -o yaml | kubectl apply -f - -n ${options.namespace}`,
     );
@@ -606,10 +822,10 @@ stringData:
 EOF
 
 # 2. Encrypt into the store (the tmpfs source is shredded automatically).
-node bin secret sops --encrypt /dev/shm/underpost-secrets/postgres-secret.yaml --namespace default
+node bin secret publish --args path=/dev/shm/underpost-secrets/postgres-secret.yaml --namespace default
 
 # 3. Verify the encrypted manifest round-trips before retiring the seed file.
-node bin secret sops --apply --namespace default --dry-run
+node bin secret apply --namespace default --dry-run
 
 # 4. From here `cluster --postgresql` takes the encrypted path automatically.
 rm -f engine-private/postgresql-password
@@ -645,7 +861,7 @@ node bin clone <github-user>/engine-<conf-id>-private
 mv engine-<conf-id>-private /home/dd/engine/engine-private
 
 # Confirm the recipient of the restored key matches a recipient in the manifests.
-node bin secret sops --list
+node bin secret status
 ```
 
 ### Step 3 — Verify decryption before touching the cluster
@@ -664,7 +880,7 @@ done
 ```bash
 # Streamed decrypt+apply per namespace. Re-runnable; kubectl apply is idempotent.
 for ns in $(ls engine-private/secrets); do
-  node bin secret sops --apply --namespace "$ns"
+  node bin secret apply --namespace "$ns"
 done
 
 # Bring up the data plane now that every secretKeyRef resolves.
@@ -684,10 +900,10 @@ The common production case is not disaster recovery but a second host — a new 
 
 ```bash
 underpost pull engine-private/ <github-user>/engine-private
-node bin secret --setup
+node bin secret setup
 ```
 
-`secret --setup` generates a keypair when the host has none, registers that recipient in `.sops.yaml` so anything this host encrypts from here on stays readable **here**, then reports every inherited manifest it cannot open and stops before the apply:
+`secret setup` generates a keypair when the host has none, registers that recipient in `.sops.yaml` so anything this host encrypts from here on stays readable **here**, then reports every inherited manifest it cannot open and stops before the apply:
 
 ```
 N encrypted manifest(s) are sealed to Age recipients this host does not hold, so they cannot be decrypted here:
@@ -708,8 +924,8 @@ chmod 600 /root/.config/sops/age/keys.txt
 
 # Every identity this host now holds; one of them must appear in --list output.
 age-keygen -y /root/.config/sops/age/keys.txt
-node bin secret sops --list
-node bin secret --setup
+node bin secret status
+node bin secret setup
 ```
 
 ### 5.2 Re-key the store from a host that can still decrypt
@@ -718,13 +934,13 @@ Preferred when the new host should get its own identity rather than a copy of th
 
 ```bash
 # On the origin host. Additive: every existing recipient keeps working.
-node bin secret sops --rotate --recipient age1myykjrf… --dry-run
-node bin secret sops --rotate --recipient age1myykjrf…
+node bin secret rotate --args recipient=age1myykjrf… --dry-run
+node bin secret rotate --args recipient=age1myykjrf…
 git -C engine-private add secrets && git -C engine-private commit -m "sops: add <host> recipient" && git -C engine-private push
 
 # Back on the new host.
 underpost pull engine-private/ <github-user>/engine-private
-node bin secret --setup
+node bin secret setup
 ```
 
 ### 5.3 Re-onboard from the origin seed files
@@ -732,26 +948,26 @@ node bin secret --setup
 Last resort, and only valid when this host's origin seed files (`engine-private/postgresql-password`, `engine-private/mongodb-username`, …) carry the credentials the cluster **already runs on**. `--force` replaces the stored manifests:
 
 ```bash
-node bin secret --setup --force
+node bin secret setup --force
 ```
 
-Any data key with no seed file and no `--args` override is **regenerated**. The running datastore keeps authenticating against its old credential until the new one is applied to it, so `secret --setup` warns per key when this happens. Pass the existing value explicitly to avoid it:
+Any data key with no seed file and no `--args` override is **regenerated**. The running datastore keeps authenticating against its old credential until the new one is applied to it, so `secret setup` warns per key when this happens. Pass the existing value explicitly to avoid it:
 
 ```bash
-node bin secret --setup postgres-secret --force --args "password=<current-password>"
+node bin secret setup --args "names=postgres-secret,password=<current-password>" --force
 ```
 
 Verify the outcome either way:
 
 ```bash
-node bin secret --status          # decryptable=yes for every manifest, live/in-sync per secret
+node bin secret status          # decryptable=yes for every manifest, live/in-sync per secret
 ```
 
 ---
 
 ## Key Rotation
 
-`--rotate` re-wraps each manifest's data key onto a new recipient. Secret **values** are untouched, so no workload restart is needed. It must run while a private key that can still decrypt is present — rotate _before_ destroying the outgoing key, never after.
+`secret rotate` re-wraps each manifest's data key onto a new recipient. Secret **values** are untouched, so no workload restart is needed. It must run while a private key that can still decrypt is present — rotate _before_ destroying the outgoing key, never after.
 
 Scheduled rotation (additive — the outgoing recipient keeps working):
 
@@ -761,10 +977,10 @@ age-keygen -o ~/.config/sops/age/keys-new.txt
 NEW_RECIPIENT="$(age-keygen -y ~/.config/sops/age/keys-new.txt)"
 
 # 2. Preview: which recipients the manifests end up sealed to, and how many change.
-node bin secret sops --rotate --recipient "$NEW_RECIPIENT" --dry-run
+node bin secret rotate --args "recipient=$NEW_RECIPIENT" --dry-run
 
 # 3. Re-key. Both keys can decrypt from here.
-node bin secret sops --rotate --recipient "$NEW_RECIPIENT"
+node bin secret rotate --args "recipient=$NEW_RECIPIENT"
 
 # 4. Verify the new key alone can decrypt, before retiring the old one.
 SOPS_AGE_KEY_FILE=~/.config/sops/age/keys-new.txt \
@@ -776,40 +992,190 @@ shred -u ~/.config/sops/age/keys-new.txt
 git -C engine-private commit -am "secrets: rotate age recipient" && git -C engine-private push
 ```
 
-Compromise response — `--prune-recipients` revokes every recipient not explicitly retained, so it is gated behind `--force` after you have seen the list:
+Compromise response — `--args prune=true` revokes every recipient not explicitly retained, so it is gated behind `--force` after you have seen the list:
 
 ```bash
 # 1. Always dry-run first. This prints exactly which recipients lose access.
-node bin secret sops --rotate --recipient "$NEW_RECIPIENT" --prune-recipients --dry-run
+node bin secret rotate --args "recipient=$NEW_RECIPIENT,prune=true" --dry-run
 
 # 2. Retain anything that must keep working — CI/CD runners are the usual casualty.
-node bin secret sops --rotate --recipient "$NEW_RECIPIENT" --prune-recipients \
-  --keep-recipients "$CI_RECIPIENT" --force
+node bin secret rotate --args "recipient=$NEW_RECIPIENT,prune=true,keep=$CI_RECIPIENT" --force
 
 # 3. Promote the new key and publish.
 install -m 0600 ~/.config/sops/age/keys-new.txt ~/.config/sops/age/keys.txt
 git -C engine-private commit -am "secrets: revoke compromised age recipient" && git -C engine-private push
 ```
 
+### Rotating `GIT_AUTH_TOKEN`
+
+The same verb rotates a credential **value**, selected with `--args secret=`. `GIT_AUTH_TOKEN` is
+the GitHub token CI workflows and cross-repository checkouts authenticate with, so its
+authoritative home is the GitHub Actions secret store rather than this one — the encrypted
+manifest is an optional mirror.
+
+```bash
+# Preview: which repositories the rotation touches. Contacts nothing, prompts for nothing.
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,deploy-id=dd-cyberia" --dry-run
+
+# Rotate. Omit token= to mint one from the GitHub App, or be prompted with no echo.
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,token=<new>,deploy-id=dd-cyberia"
+
+# Mirror the new value into the encrypted store and project it into the cluster.
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,token=<new>,store=true,apply=true"
+```
+
+#### Where the new token comes from
+
+GitHub exposes no API for creating a personal access token, so you generate the PAT yourself at
+`github.com/settings/tokens` and the CLI distributes it. Sources are tried in this order:
+
+| Order | Source                  | When                                          |
+| ----- | ----------------------- | --------------------------------------------- |
+| 1     | `--args token=<token>`  | Always wins.                                  |
+| 2     | Piped stdin             | fd 0 is a pipe or a redirected file.          |
+| 3     | `$GIT_AUTH_TOKEN`       | Exported in the environment.                  |
+| 4     | No-echo terminal prompt | Interactive session, nothing above available. |
+
+Piping is what automation should use — it is the only source that keeps the token out of both the
+process table and the shell history:
+
+```bash
+printf %s "$TOKEN" | node bin secret rotate --args "secret=GIT_AUTH_TOKEN,deploy-id=dd"
+```
+
+Stdin is read only when fd 0 is a pipe or a redirected file, decided by `fstat` rather than
+`isTTY`: `< /dev/null` is not a terminal either, and reading it would strand the rotation on an
+empty token instead of falling through to the next source.
+
+> Stdin deliberately outranks `$GIT_AUTH_TOKEN`. A pipe is what you chose for this run, whereas an
+> exported `GIT_AUTH_TOKEN` is very often the **outgoing** token — inside a workflow that maps
+> `GIT_AUTH_TOKEN: ${{ secrets.GIT_AUTH_TOKEN }}`, taking it would re-set the value being replaced
+> and report a rotation that never happened. (`$GITHUB_TOKEN` is excluded as a source entirely, for
+> the same reason: it is what `gh` authenticates _with_.)
+
+#### Rotating the whole fleet
+
+`deploy-id=dd` is the meta id every runner reads as "all of `engine-private/deploy/dd.routes`",
+resolved through the same reader the cluster deploys from — so a rotation covers exactly the fleet
+that is running, and cannot drift from it by parsing the route table a second time. Each deploy
+contributes its triple (private conf, production source, test source); the union is deduplicated,
+so a repository two deploys share is rotated once.
+
+```bash
+# 1. See the whole target set first. dd.routes decides it; targets are probed read-only,
+#    and nothing is minted, prompted for, or written.
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,deploy-id=dd" --dry-run
+
+# 2. Rotate the fleet. Mints from the App when configured, else prompts with no echo.
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,deploy-id=dd"
+
+# 3. Or a subset — `|`, `;` or whitespace, since --args splits on commas.
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,deploy-id=dd-cyberia|dd-lampp"
+```
+
+```
+dd.routes: dd-lampp,dd-cyberia,dd-core,dd-prototype,dd-test
+   -> engine-lampp-private     engine-lampp       engine-test-lampp
+      engine-cyberia-private   engine-cyberia     engine-test-cyberia
+      engine-core-private      engine-core        engine-test-core
+      engine-prototype-private engine-prototype   engine-test-prototype
+      engine-test-private      engine-test        engine-test-test
+```
+
+A derived name that does not exist on GitHub — a deploy with no test source repo, say — is
+reported and skipped, so the fan-out stays safe to run across a fleet whose deploys do not all own
+the same repositories. Without a checked-out `engine-private` there is no route table, and `dd`
+falls back to the single default deploy with a warning rather than silently rotating nothing.
+
+The targets are resolved from the deploy id through the same naming `deploy/lib/host.sh` uses, so
+`dd-cyberia`, `engine-cyberia`, `engine-test-cyberia` and `engine-cyberia-private` all name the
+same set. Each deploy contributes:
+
+| Target                             | Source                                                                |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `engine-<conf-id>-private`         | The private configuration repository.                                 |
+| `engine-<conf-id>`                 | The production engine source.                                         |
+| `engine-test-<conf-id>`            | The test engine source.                                               |
+| `engine-ghpkg-<conf-id>`           | The package mirror `.github/workflows/ghpkg.ci.yml` publishes.        |
+| `metadata.repository` per instance | Every entry in `engine-private/conf/<deploy-id>/conf.instances.json`. |
+
+An instance is a separate product with its own repository and its own workflows reading the same
+token — `dd-cyberia` builds from `cyberia-server` and `cyberia-client` — so a rotation that
+covered only the engine repositories would leave half the deploy on the previous credential. An
+instance keeps the owner its `metadata.repository` declares, which outranks `owner=`.
+
+Derived names that do not exist on GitHub are dropped by the reachability probe, so there is no
+separate existence check: a deploy with no ghpkg mirror or no test source simply contributes
+fewer targets. `owner=` overrides the GitHub owner for the derived names, and
+`repos=owner/one|owner/two` adds targets — with `|`, `;` or whitespace, because `--args` splits
+on commas.
+
+`template` is the second meta id alongside `dd`. The template lineage carries no conf id, so it
+resolves to its own repositories rather than through `engine-<conf-id>` naming:
+
+```bash
+node bin secret rotate --args "secret=GIT_AUTH_TOKEN,deploy-id=template" --dry-run
+#   pwa-microservices-template
+#   pwa-microservices-template-ghpkg
+#   engine
+```
+
+| Parameter    | Effect                                                                                 |
+| ------------ | -------------------------------------------------------------------------------------- |
+| `token=`     | The replacement token. Omit it to mint one, or fall back to the prompt below.          |
+| `deploy-id=` | The deploy(s) to rotate: an id, a `\|`-separated list, or `dd` for all of `dd.routes`. |
+| `owner=`     | GitHub owner. Falls back to `$ENGINE_SRC_REPO`'s, then `$GITHUB_USERNAME`.             |
+| `repos=`     | Extra `owner/repo` targets, separated by `\|`, `;` or whitespace.                      |
+| `store=true` | Mirror into the encrypted store even when no manifest exists yet.                      |
+| `apply=true` | Project the updated manifest into the cluster.                                         |
+
+Requires the GitHub CLI, authenticated as an account holding **admin** on the targets — writing
+an Actions secret needs it:
+
+```bash
+gh auth login          # or: GH_TOKEN=… (the credential gh authenticates *with*, not the new token)
+gh auth status
+```
+
+Behaviour worth knowing before you run it:
+
+- **GitHub is written first, the store second.** The token is only real once GitHub holds it. A
+  store that leads GitHub records a credential no workflow can use; a GitHub that leads the store
+  converges on the next run. Every write is idempotent, so a partially failed rotation is
+  re-runnable with the same token.
+- **An unreachable target is skipped, not fatal.** A deploy does not necessarily own every
+  repository its naming implies — a test source repo often does not exist — and a missing one must
+  not leave the private conf repo un-rotated. Targets that resolve but fail to write are collected
+  and raised at the end, after the successful ones are on record. If _nothing_ rotated, the store
+  is left untouched so it keeps recording the credential GitHub is actually running on.
+- **The token is never a command argument.** It is staged on tmpfs at mode 600, handed to
+  `gh secret set` on stdin, and shredded afterwards — so it reaches neither the process table nor
+  the command log. `$GITHUB_TOKEN` is deliberately _not_ a source for the new value: it is what
+  `gh` authenticates with, which during a rotation is the outgoing token.
+
 ### Multi-recipient management
 
-`.sops.yaml` holds one recipient per party that must be able to decrypt — each operator, plus any CI/CD or automation key. `--rotate` without `--prune-recipients` is purely additive, which is how a new operator is onboarded:
+`.sops.yaml` holds one recipient per party that must be able to decrypt — each operator, plus any CI/CD or automation key. `secret rotate` without `prune=true` is purely additive, which is how a new operator is onboarded:
 
 ```bash
 # Add a colleague or a CI runner. Every existing recipient keeps working.
-node bin secret sops --rotate --recipient age1colleague… --dry-run
-node bin secret sops --rotate --recipient age1colleague…
+node bin secret rotate --args recipient=age1colleague… --dry-run
+node bin secret rotate --args recipient=age1colleague…
 ```
 
 Removing one party is the same operation with the survivors named explicitly:
 
 ```bash
 # Offboard age1leaver…: keep everyone else, revoke the rest.
-node bin secret sops --rotate --recipient age1me… \
-  --keep-recipients "age1colleague…,age1ci…" --prune-recipients --dry-run
+node bin secret rotate --args "recipient=age1me…,keep=age1colleague…|age1ci…,prune=true" --dry-run
 ```
 
-> **`--prune-recipients` is the sharpest edge in this document.** It revokes by omission: anything not passed to `--keep-recipients` (or supplied as `--recipient`) loses access to _every_ manifest in the store, not just the one you had in mind. The classic incident is pruning during a compromise response and taking the CI/CD deploy key with it — pipelines then fail on the next deploy, in the middle of an active incident, with no obvious link to the rotation. Three guardrails, all enforced in code:
+> `--args` splits its own pairs on commas, so a multi-recipient `keep=` separates with `|` (a
+> semicolon or whitespace works too). A comma there would be read as the start of the next
+> parameter and silently drop every recipient after the first — which, under `prune=true`, is
+> exactly the revocation this guardrail exists to prevent.
+
+> **`--args prune=true` is the sharpest edge in this document.** It revokes by omission: anything not passed as `keep=` (or supplied as `recipient=`) loses access to _every_ manifest in the store, not just the one you had in mind. The classic incident is pruning during a compromise response and taking the CI/CD deploy key with it — pipelines then fail on the next deploy, in the middle of an active incident, with no obvious link to the rotation. Three guardrails, all enforced in code:
 >
 > 1. `--dry-run` reports `revoked: [...]` and warns when the list is non-empty, without touching a file.
 > 2. A prune that would drop any recipient **refuses to run** without `--force`.
@@ -833,7 +1199,7 @@ Credential rotation (new password) is a different operation — it changes the v
 
 ```bash
 sops engine-private/secrets/default/postgres-secret.enc.yaml   # edit in $EDITOR, re-encrypts on save
-node bin secret sops --apply --namespace default
+node bin secret apply --namespace default
 kubectl rollout restart statefulset/postgres -n default
 ```
 
@@ -841,20 +1207,22 @@ kubectl rollout restart statefulset/postgres -n default
 
 ## Emergency Purge
 
-`--purge` removes one secret from the live cluster and takes its manifest out of the store. The manifest is **archived, not deleted**, so the purge is reversible; `--force` deletes it outright.
+`secret clean --args names=<secret>` removes that secret from the live cluster and takes its manifest out of the store. `--force` is required because the deletion is cluster state. The manifest is **archived, not deleted**, so the purge stays reversible; `--args delete=true` removes it outright.
+
+Disposition is deliberately not `--force`'s job: `--force` authorizes touching the cluster, `delete=true` authorizes losing the manifest. Folding them into one flag would make every purge permanent and leave the archive path unreachable.
 
 ```bash
 # Preview: what gets deleted, whether an origin seed path still exists.
-node bin secret sops --purge postgres-secret --namespace default --dry-run
+node bin secret clean --args names=postgres-secret --namespace default --dry-run --force
 
 # Delete the live Secret; archive the manifest under engine-private/secrets/.archive/.
-node bin secret sops --purge postgres-secret --namespace default
+node bin secret clean --args names=postgres-secret --namespace default --force
 
 # Irreversible variant — no archive copy is kept.
-node bin secret sops --purge postgres-secret --namespace default --force
+node bin secret clean --args names=postgres-secret,delete=true --namespace default --force
 ```
 
-Removing the manifest is what re-arms the origin seed path: with no `.enc.yaml`, `applyIfPresent` returns `false` and cluster init seeds the secret from the `--from-file` credentials again (see [§3.3](#33-cluster-initialization-hook)). Whether that seed path is actually available is reported rather than assumed — if the seed files are absent, the purge warns that the secret must be re-encrypted or created manually before redeploying workloads that mount it. Purging a secret whose seed files were already deleted otherwise surfaces only at the next deploy, as a pod stuck on an unresolvable `secretKeyRef`.
+Removing the manifest is what re-arms the origin seed path: with no `.enc.yaml`, `applyIfPresent` returns `false` and cluster init seeds the secret from the origin seed files again (see [§3.3](#33-cluster-initialization-hook)). Whether that seed path is actually available is reported rather than assumed — if the seed files are absent, the purge warns that the secret must be re-encrypted or created manually before redeploying workloads that mount it. Purging a secret whose seed files were already deleted otherwise surfaces only at the next deploy, as a pod stuck on an unresolvable `secretKeyRef`.
 
 Restoring from the archive:
 
@@ -862,7 +1230,7 @@ Restoring from the archive:
 ls engine-private/secrets/.archive/default/
 mv engine-private/secrets/.archive/default/postgres-secret.2026-08-03T14-22-07-000Z.enc.yaml \
    engine-private/secrets/default/postgres-secret.enc.yaml
-node bin secret sops --apply --namespace default
+node bin secret apply --namespace default
 ```
 
 `.archive` is dot-prefixed so `list()`, `apply()`, and `manifests()` never treat it as a namespace.
@@ -889,7 +1257,8 @@ node bin secret sops --apply --namespace default
 | A manifest cannot be encrypted to an unlisted recipient                  | Committed `.sops.yaml` `creation_rules`                                     |
 | Recipients are never revoked by accident                                 | Prune refuses without `--force`; `--dry-run` lists the revoked set first    |
 | A rotation is never reported complete while a file stays on the old key  | Post-`updatekeys` re-read asserts the new recipient is in the `sops:` block |
-| Secrets exist before the workloads that mount them                       | `sops.apply()` ahead of `kubectl apply -k` in `cluster.init()`              |
+| Secrets exist before the workloads that mount them                       | `secret apply` ahead of `kubectl apply -k` in `cluster.init()`              |
+| A purge is reversible unless `delete=true` says otherwise                | `clean` passes the disposition, not `--force`, through to `purge()`         |
 | Re-running apply, rotate, or purge is safe                               | `kubectl apply` and `updatekeys` are idempotent; purge archives by default  |
 | Losing the key is recoverable                                            | Second break-glass recipient + verified offline backup                      |
 

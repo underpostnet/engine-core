@@ -13,18 +13,19 @@ Minimalist reference for Underpost engine cluster lifecycle commands.
 5. [Development Server](#development-server)
 6. [Cluster Build](#cluster-build)
 7. [Template Deploy](#template-deploy)
-8. [SSH Deploy](#ssh-deploy)
-9. [Cluster](#cluster)
-10. [DD Container](#dd-container)
-11. [Image](#image)
-12. [Default Configuration](#default-configuration)
-13. [Promote](#promote)
-14. [Cron](#cron)
-15. [Sync](#sync)
-16. [Deploy Job](#deploy-job)
-17. [Node Move](#node-move)
-18. [Observability and Events](#observability-and-events)
-19. [Baremetal Node Commissioning & Join](#baremetal-node-commissioning--join)
+8. [Node Source Pull](#node-source-pull)
+9. [SSH Deploy](#ssh-deploy)
+10. [Cluster](#cluster)
+11. [DD Container](#dd-container)
+12. [Image](#image)
+13. [Default Configuration](#default-configuration)
+14. [Promote](#promote)
+15. [Cron](#cron)
+16. [Sync](#sync)
+17. [Deploy Job](#deploy-job)
+18. [Node Move](#node-move)
+19. [Observability and Events](#observability-and-events)
+20. [Baremetal Node Commissioning & Join](#baremetal-node-commissioning--join)
 
 ---
 
@@ -65,7 +66,58 @@ Configuration files in `./engine-private/conf/dd-<conf-id>/` use `env:` referenc
 
 Actual secret values are stored in per-deploy `.env.*` files (`./engine-private/conf/dd-<conf-id>/.env.production`, `.env.development`, `.env.test`). At runtime, the engine's `resolveConfSecrets()` function replaces `"env:VAR_NAME"` with the corresponding `process.env.VAR_NAME` value. Generated `conf.dd-*.js` manifests emit `process.env.VAR || ''` expressions — no plaintext secret is ever written to source-controlled JS files.
 
-LAMPP deploy (`dd-lampp`) clients are `null` in the public project configuration. Client builds for LAMPP deployments are handled by private internal logic in `engine-private/itc-scripts/`.
+LAMPP deploy (`dd-lampp`) clients are `null` in the public project configuration, so no client bundle is built for it.
+
+### Repository-backed document roots
+
+A `conf.server.json` route whose runtime serves files from a checkout declares the source repository alongside its document root, so provisioning is part of the runtime rather than an out-of-band script:
+
+```json
+{
+  "www.example.com": {
+    "/": {
+      "runtime": "lampp",
+      "directory": "/home/dd/netlify_example",
+      "repository": "env:LAMPP_REPOSITORY_EXAMPLE"
+    }
+  }
+}
+```
+
+The `env:` pointer resolves from the deploy's `.env.<env>`, keeping repository URLs and their tokens out of source control. One deploy id can back as many repositories as it has routes — each route provisions its own document root independently.
+
+`lampp` clones the repository straight into `directory`; `wp` resolves its own site root under `/opt/lampp/htdocs/wp/<host>` and falls back to a fresh WordPress install when the remote is unreachable or the checkout has no `wp-config.php`. Both go through `UnderpostRepository.provisionSiteRoot`, which clones only when the directory is absent, so a restart never re-clones a provisioned host. The checkout keeps its `.git`, which is what lets `node bin db --backup` commit and push a site back to its repository; the generated vhost denies `.git` over HTTP.
+
+### OCI runtime overlay
+
+Values that only hold when a deployment runs as a container image — cluster-internal service names, in-cluster database endpoints — live in a sibling overlay file rather than in the base env file:
+
+```
+./engine-private/conf/dd-<conf-id>/.env.<env>          # host-scoped base
+./engine-private/conf/dd-<conf-id>/.env.<env>.oci      # container-scoped overrides
+```
+
+The overlay declares only the keys it changes; every other key keeps the base value. It is applied automatically when the reader is a container runtime:
+
+| Caller                                        | Overlay applied                                    |
+| --------------------------------------------- | -------------------------------------------------- |
+| `node bin app load`                           | Only when the process is inside a container        |
+| `node bin app apply`                          | Always — the Secret is consumed by container pods  |
+| `node bin app status`                         | Reports the overlay path under `ociOverlay`        |
+
+Detection is Kubernetes service injection (`KUBERNETES_SERVICE_HOST`) or Docker's `/.dockerenv` marker, the same check `underpost state` uses. On a developer host the base file is read untouched, so a local run keeps its `127.0.0.1` endpoints while the same deploy id resolves cluster endpoints inside a pod.
+
+Example — `./engine-private/conf/dd-core/.env.production.oci`:
+
+```dotenv
+VALKEY_HOST=valkey-service.default.svc.cluster.local
+VALKEY_PORT=6379
+DB_HOST=mongodb://mongodb-0.mongodb-service:27017,mongodb-1.mongodb-service:27017,mongodb-2.mongodb-service:27017
+DB_REPLICA_SET=rs0
+DB_AUTH_SOURCE=admin
+```
+
+Overlays are mirrored into the deploy's private configuration repository along with the rest of `conf/dd-<conf-id>/`, so no extra sync step is needed.
 
 > **⚠️ Important:** Ensure `.env.*` files and `engine-private/` are listed in `.gitignore` and never committed to public repositories.
 
@@ -139,6 +191,9 @@ node bin app clean
 | `--args deploy-id=<id>` | Overrides the deployment id resolved from the repository context                 |
 | `--args sub-conf=<name>`| Selects `.env.<env>.<name>` when that file exists                                |
 
+Inside a container, `app load` additionally applies the deploy's `.env.<env>.oci` overlay on top of
+the resolved file — see [OCI runtime overlay](#oci-runtime-overlay).
+
 `app load` reads `./engine-private/conf/dd-<conf-id>/` and materializes the working tree:
 
 - `.env.production`, `.env.development`, `.env.test` → project root
@@ -146,7 +201,7 @@ node bin app clean
 - `package.json` → updated with the deploy's start script
 - the in-process `Config.default` the runtime reads
 
-It deliberately does not write the underpost root env store — that store is host-scoped and holds
+It deliberately does not write the host configuration store — that store is host-scoped and holds
 the node's own configuration, which `node bin host load` owns.
 
 `app clean` removes the root `.env` files it materialized.
@@ -190,7 +245,9 @@ node bin new --sub-conf server <sub-conf-name>
 
 This creates a copy of `conf.server.json` as `conf.server.dev.<sub-conf-name>.json` that can be trimmed to the desired hosts.
 
-The sub-conf filtering is propagated via the `DEPLOY_SUB_CONF` environment variable, which is read by `getConfFilePath()` so that all downstream consumers (client builds, server runtimes, API servers) consistently use the filtered configuration.
+A sub-conf named on the command line is carried as an argument all the way into the build — `node bin client <deploy-id> <sub-conf>` passes it to every `readConfJson()` the build performs — and is honored whatever the ambient environment is. Naming it is a request, not a hint.
+
+Where no sub-conf is named, `getConfFilePath()` falls back to the `DEPLOY_SUB_CONF` environment variable that `loadConf()` exports, so downstream consumers (server runtimes, API servers) inherit the same filtered configuration. That inherited form stays development-only: a production deploy that merely carries `DEPLOY_SUB_CONF` keeps reading `conf.server.json`.
 
 ### Additional Development Scripts
 
@@ -258,6 +315,67 @@ When a `sync-engine-<conf-id>` path is provided, the commit tag becomes `ci pack
 
 ---
 
+## Node Source Pull
+
+**Command:** `node bin run pull [source-repo]`
+
+Brings a node's engine checkout and its private configuration to the tip of their repositories, at `/home/dd/engine` and `/home/dd/engine/engine-private`. This is the first step every deploy script runs, through `prepare_host` in `deploy/lib/host.sh`.
+
+```bash
+node bin run pull
+node bin run pull underpostnet/engine-lampp
+node bin run pull underpostnet/engine-test-lampp
+```
+
+Only the source repository is named. The private configuration repository is derived from the conf id the two share, so the pair can never drift apart:
+
+| `source-repo`                    | Engine checkout                  | Private configuration            |
+| -------------------------------- | -------------------------------- | -------------------------------- |
+| *(omitted)*                      | `<owner>/engine`                 | `<owner>/engine-private`         |
+| `underpostnet/engine-lampp`      | `underpostnet/engine-lampp`      | `underpostnet/engine-lampp-private` |
+| `underpostnet/engine-test-lampp` | `underpostnet/engine-test-lampp` | `underpostnet/engine-lampp-private` |
+
+The owner is taken from the reference, which may be an `owner/repo` slug or a full clone URL.
+
+Both checkouts are **replaced**, not merged — the same `underpost cmt --switch-repo` route the fleet sync takes, so a node reached by `run pull` and a node reached by `underpost edge --sync` land on the same commit by the same operation. A node that moved onto a test source repo comes back without being reprovisioned, and one that drifted onto commits of its own is brought back rather than refused by a fast-forward pull.
+
+| Option                     | Description                                                                                                    |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `--repo-engine-private <repo>` | Private configuration repository to check out, as `owner/repo` or a clone URL. Overrides the derivation above. |
+
+`--repo-engine-private` is for a conf repository the pairing cannot name — one whose name does not follow `engine-<conf-id>-private`, or one that lives under a different owner:
+
+```bash
+node bin run pull underpostnet/engine-test-lampp --repo-engine-private underpostnet/engine-core-private
+```
+
+`underpost edge --sync` takes the same two flags, `--repo-engine` and `--repo-engine-private`, and resolves the pair identically.
+
+### Selecting the source in a deploy script
+
+`deploy/lib/host.sh` exposes `ENGINE_SRC_REPO` and `ENGINE_SRC_PRIVATE_REPO` for this. Set them before calling `prepare_host`, or pass them as its second and third arguments:
+
+```bash
+ENGINE_SRC_REPO=underpostnet/engine-test-lampp
+ENGINE_SRC_PRIVATE_REPO=underpostnet/engine-core-private
+prepare_host "$ENGINE_ROOT"
+
+# or, per call
+prepare_host "$ENGINE_ROOT" underpostnet/engine-test-lampp underpostnet/engine-core-private
+```
+
+Both are resolved in one order, most specific first:
+
+1. the environment, as above — a deploy script naming the source it prepares for;
+2. the node's own host configuration store, which is where `underpost wireguard --sync` records the pair it moved the node onto;
+3. nothing — `run pull` derives the pair itself, which is the monorepo when no account names another.
+
+Step 2 is what keeps a switch from being undone: a node synced onto a product source prepares itself from that source on its next `prepare_host`, instead of being pulled back to a repository named in a script. `host.sh` names no repository of its own for that reason. The store is read directly rather than through `underpost host get`, because this is the file that resolves the manifest making that CLI runnable.
+
+Both keys are listed in `.env.example`.
+
+---
+
 ## SSH Deploy
 
 **Command:** `node bin run ssh-deploy <path> [options]`
@@ -280,20 +398,20 @@ node bin run ssh-deploy sync-engine-cyberia --force
 
 ## Cluster
 
-**Command:** `node bin run cluster [path] [options]`
+**Command:** `node bin run cluster [options]`
 
 Complete cluster initialization: reset → setup → pull images → deploy databases → deploy cache → ingress → certs → services. The runner uses `kubeadm` by default or `k3s` when `--k3s` is specified.
 
 ```bash
 node bin run cluster
-node bin run cluster express,dd-core+dd-cyberia
-node bin run cluster lampp,dd-core+dd-cyberia+dd-lampp
-node bin run cluster 'express,dd-cyberia,mmo-server' --dev
+node bin run cluster --deploy-id dd-core,dd-cyberia
+node bin run cluster --runtime-image lampp --deploy-id dd-core,dd-cyberia,dd-lampp
+node bin run cluster --deploy-id dd-cyberia --instance-id mmo-server --dev
 node bin run cluster --dev
 node bin run cluster --k3s
 ```
 
-**Path format:** `<runtime-image>,<deploy-list>[,<instance-list>]` — runtime defaults to `express` (valid values: `express`, `lampp`), deploy-list defaults to `dd.routes` contents. Deploy IDs are `+`-separated and use the `dd-<conf-id>` format. When runtime is `lampp`, a MariaDB statefulset is additionally deployed alongside MongoDB. The optional third segment names custom instances to deploy — see [Custom instances](#custom-instances).
+**Inputs are flags:** `--runtime-image` defaults to `express` (valid values: `express`, `lampp`), `--deploy-id` takes a comma-separated list of `dd-<conf-id>` ids or the `dd` meta id and defaults to the `dd.routes` contents. When the runtime image is `lampp`, a MariaDB statefulset is additionally deployed alongside MongoDB. `--instance-id` names custom instances to deploy — see [Custom instances](#custom-instances).
 
 | Option                  | Description                                                                    |
 | ----------------------- | ------------------------------------------------------------------------------ |
@@ -317,7 +435,7 @@ sudo ausearch -m AVC,USER_AVC,SELINUX_ERR -ts recent -i
 The dev cluster is a single command — there are no extra flags to remember, because everything the browser needs is derived from `conf.server.json` and applied by the runner itself:
 
 ```bash
-node bin run cluster 'express,dd-cyberia' --dev
+node bin run cluster --deploy-id dd-cyberia --dev
 ```
 
 - **Gateway API + Envoy Gateway** is the default routing stack. `--disable-gateway-api` is the only way back to Contour.
@@ -426,17 +544,17 @@ Single-stack installs are unchanged: with only one data plane present the old be
 
 ### Custom instances
 
-The optional third path segment names instances from `engine-private/conf/<deploy-id>/conf.instances.json`:
+`--instance-id` names instances from `engine-private/conf/<deploy-id>/conf.instances.json`:
 
 ```bash
 # One instance of one deploy
-node bin run cluster 'express,dd-cyberia,mmo-server' --dev
+node bin run cluster --deploy-id dd-cyberia --instance-id mmo-server --dev
 
 # Several, across several deploys
-node bin run cluster 'express,dd-cyberia+dd-core,mmo-server+mmo-client+worker' --dev
+node bin run cluster --deploy-id dd-cyberia,dd-core --instance-id mmo-server,mmo-client,worker --dev
 
 # A single variant rather than the whole family
-node bin run cluster 'express,dd-cyberia,mmo-server-forest' --dev
+node bin run cluster --deploy-id dd-cyberia --instance-id mmo-server-forest --dev
 ```
 
 An instance belongs to a deploy through that deploy's own `conf.instances.json` — nothing else relates the two. Each requested id is resolved against every deploy in the list, and only runs where it is declared; an id no deploy declares is reported as a warning rather than silently skipped. Naming a template id (`mmo-server`) selects its whole variant family, exactly as `run instance` resolves it.
@@ -678,7 +796,7 @@ Each enabled job generates a Kubernetes CronJob YAML manifest at `./manifests/cr
 The `sync` command automatically triggers cron setup when `--deploy-id-cron-jobs` is not set to `none`:
 
 ```bash
-node bin run sync dd-my-app --dev --kind --create-job-now
+node bin run sync --deploy-id dd-my-app --dev --kind --create-job-now
 ```
 
 This runs `node bin cron <cron-deploy-id> --setup-start --git --apply` with the resolved cluster flags, applying cron manifests as part of the full deployment sync cycle.
@@ -689,17 +807,18 @@ The cron deploy-id is independent of the deploy-id being synced: `--deploy-id-cr
 
 ## Sync
 
-**Command:** `node bin run sync <deploy-id> [options]`
+**Command:** `node bin run sync --deploy-id <deploy-id> [options]`
 
 Synchronizes deployment replicas, configurations, and traffic across the cluster. Reads deployment IDs from `./engine-private/deploy/dd.routes`, validates version states, updates cron jobs, and handles blue-green traffic switching.
 
 ```bash
-node bin run sync dd-core --dev --kind
-node bin run sync dd-core --kubeadm
-node bin run sync dd --dev --kind --create-job-now
-node bin run sync dd-my-app --dev --kind --deploy-id-cron-jobs dd-cron
-node bin run sync dd-my-app --k3s --namespace production
-node bin run sync dd-core --kubeadm --image-pull-policy Always
+node bin run sync --deploy-id dd-core --dev --kind
+node bin run sync --deploy-id dd-core --kubeadm
+node bin run sync --deploy-id dd --dev --kind --create-job-now
+node bin run sync --deploy-id dd-my-app --dev --kind --deploy-id-cron-jobs dd-cron
+node bin run sync --deploy-id dd-my-app --k3s --namespace production
+node bin run sync --deploy-id dd-core --kubeadm --image-pull-policy Always
+node bin run sync --deploy-id dd-lampp --replicas 2 --image underpost/wp:v3.3.0 --kubeadm
 ```
 
 On a **first bring-up**, before `sync` applies the target colour's `deployment.yaml`, it enforces the same no-backend checkpoint as `run cluster`: it builds (or reuses, with `--skip-full-build`) configured SSR assets, syncs them into `underpost-gateway`, applies only the target-colour Gateway/HTTPRoute configuration, and requests every `maintenanceDefault` fallback. Each response must preserve a 502/503/504 status and exactly match the configured document. Only then does sync execute its existing `--disable-update-proxy` workload apply, readiness monitor and final traffic reconciliation.
@@ -863,7 +982,7 @@ node bin event --serve                      # run the Alertmanager webhook recei
 | Grafana 3000           | Cluster — provisioned datasource and dashboards                    |
 | Event dispatcher 39099 | Host — remediation needs the engine checkout and the SSH key store |
 
-Only `nodejs` paths are scraped: they are the ones that serve a `prom-client` registry. Which deploys those come from defaults to the cron deploy in `dd.cron` **plus** every deploy in `dd.routes` — the set `loadCronDeployEnv()` loads — so the cron deploy is not the one unmonitored runtime on the cluster. The Envoy data plane is discovered by pod label rather than named, because Envoy Gateway generates its Deployment name per GatewayClass. The webhook always carries a bearer token, minted on first provisioning into the underpost root env store and projected into the cluster as the `alertmanager-webhook` Secret.
+Only `nodejs` paths are scraped: they are the ones that serve a `prom-client` registry. Which deploys those come from defaults to the cron deploy in `dd.cron` **plus** every deploy in `dd.routes` — the set `loadCronDeployEnv()` loads — so the cron deploy is not the one unmonitored runtime on the cluster. The Envoy data plane is discovered by pod label rather than named, because Envoy Gateway generates its Deployment name per GatewayClass. The webhook always carries a bearer token, minted on first provisioning into the host configuration store and projected into the cluster as the `alertmanager-webhook` Secret.
 
 The stack runs on kubeadm, Kind and K3s. The one runtime-dependent value is the host address Alertmanager delivers to: on kubeadm and K3s the node's `InternalIP` is the machine, while on Kind it is a Docker container, so the bridge gateway is used instead.
 
@@ -1070,7 +1189,7 @@ script: |
 Wrapping pattern inside these scripts:
 
 ```bash
-sudo -n -- /bin/bash -lc "node bin run sync --kubeadm dd-cyberia"
+sudo -n -- /bin/bash -lc "node bin run sync --kubeadm --deploy-id dd-cyberia"
 ```
 
 `bash -lc "cmd"` exits with `cmd`'s exit code; `sudo -n --` preserves that exit; the outer `set -e` aborts the script. Three layers all forwarding the same code. The Node link in the chain is automatic now: `shellExec` is fail-fast by default, so any subprocess non-zero throws `ShellExecError`. Uncaught, that becomes a non-zero `process.exit` — observable by the SSH wrapper, observable by GitHub Actions.
