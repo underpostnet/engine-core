@@ -404,6 +404,7 @@ const DefaultConf = /**/ {
             './src/client/public/nexodev/docs/references/Deploy to K8S.md',
             './src/client/public/nexodev/docs/references/Deploy custom instance to K8S.md',
             './src/client/public/nexodev/docs/references/Image Management.md',
+            './src/client/public/nexodev/docs/references/File Storage.md',
             './src/client/public/nexodev/docs/references/LXD Management.md',
             './src/client/public/nexodev/docs/references/Main cluster lifecycle commands.md',
             './src/client/public/nexodev/docs/references/Monitor cluster.md',
