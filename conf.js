@@ -393,8 +393,8 @@ const DefaultConf = /**/ {
         ws: 'core',
         peer: true,
         docs: {
-          coveragePath: './',
           jsJsonPath: './typedoc.json',
+          coverage: [{ id: 'engine', label: 'Coverage report', suite: 'unit,infra,app' }],
           references: [
             './src/client/public/nexodev/docs/references/Getting started.md',
             './src/client/public/nexodev/docs/references/Command Line Interface.md',
