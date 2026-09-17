@@ -5,10 +5,51 @@
  * @namespace Middlewares
  */
 
+import fs from 'fs-extra';
+import nodePath from 'path';
 import { loggerFactory } from '../ops/logger.js';
 import { moderatorGuard, adminGuard } from '../security/auth.js';
+import { parsePublicRoute } from '../../client/components/core/CommonJs.js';
 
 const logger = loggerFactory(import.meta);
+
+/**
+ * Serves the PWA shell for dynamic public routes (`/u/:username`, `/entry/:stableSlug`,
+ * `/content/:stableSlug`), whose resources have no file on disk: the namespace view's own
+ * build (`<ns>/index.html`), since the shell loads its bundle relative to that directory. The
+ * client router resolves the parameter. A malformed parameter, or an app that declares no view for
+ * the namespace, falls through to the 404 terminator. The parameter never reaches the filesystem.
+ *
+ * An entry's shell is served with the entry's own metadata in its head when the instance has an
+ * entry renderer (`entryShellRendererFactory`): the initial HTML then already describes the
+ * document to crawlers and preview services. What that head says depends on who asks (a private
+ * entry is described to its owner only), so the response varies on the authorization header.
+ * @method publicRouteFallbackFactory
+ * @param {{ root: string, path?: string, renderEntry?: Function }} config - Static root, the
+ *   instance's proxy sub-path, and the entry renderer of an instance that resolves documents.
+ * @returns {import('express').RequestHandler}
+ * @memberof Middlewares
+ */
+const publicRouteFallbackFactory = ({ root, path = '/', renderEntry }) => {
+  const prefix = path === '/' ? '' : path;
+  return async (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    const route = parsePublicRoute(req.path, `${prefix}/`);
+    if (!route) return next();
+    const shell = nodePath.resolve(root, `.${prefix}`, route.namespace, 'index.html');
+    if (!fs.existsSync(shell)) return next();
+    if (route.name !== 'entry' || !renderEntry) return res.sendFile(shell);
+    try {
+      const html = await renderEntry(req, await fs.readFile(shell, 'utf8'), route.params.stableSlug);
+      // Revalidated on every use like the static shell; what an authorized requester sees is theirs.
+      res.set('Cache-Control', `${req.headers.authorization ? 'private' : 'public'}, max-age=0`);
+      res.set('Vary', 'Authorization');
+      return res.type('html').send(html);
+    } catch (error) {
+      return next(error);
+    }
+  };
+};
 
 /**
  * The public-read CORS policy: reflect the request origin (or allow any)
@@ -100,7 +141,7 @@ const sendBlob = (req, res, { buffer, mimetype, filename, disposition = 'inline'
  * Wraps a controller body with error logging and the error response envelope.
  * @method controllerHandler
  * @param {(req, res, options) => Promise<any>} fn
- * @param {{ errorStatus?: number }} [config]
+ * @param {{ errorStatus?: number }} [config] - Status used when the error carries no `status` of its own.
  * @returns {Function} Async Express-compatible controller handler.
  * @memberof Middlewares
  */
@@ -111,7 +152,7 @@ const controllerHandler =
       return await fn(req, res, options);
     } catch (error) {
       logger.error(error, error.stack);
-      return sendError(res, error, errorStatus);
+      return sendError(res, error, error.status ?? errorStatus);
     }
   };
 
@@ -210,4 +251,5 @@ export {
   serviceHandler,
   buildCrudController,
   registerCrudRoutes,
+  publicRouteFallbackFactory,
 };
