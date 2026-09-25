@@ -13,7 +13,11 @@
     "./src/projects/underpost"
   ],
   "entryPointStrategy": "expand",
-  "exclude": ["**/node_modules/**", "**/docs/**", "**/client/**"],
+  "exclude": [
+    "**/node_modules/**",
+    "**/docs/**",
+    "**/client/**"
+  ],
   "out": "./public/www.nexodev.org/docs/",
   "readme": "./README.md",
   "tsconfig": "./tsconfig.docs.json",
@@ -27,5 +31,7 @@
     "includeGroups": true
   },
   "categorizeByGroup": true,
-  "sort": ["source-order"]
+  "sort": [
+    "source-order"
+  ]
 }
