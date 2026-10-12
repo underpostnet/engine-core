@@ -19,6 +19,7 @@ import { DocumentService } from '../../services/document/document.service.js';
 import { NotificationManager } from './NotificationManager.js';
 import { getApiBaseUrl } from '../../services/core/core.service.js';
 import { navigatePublicRoute, publicRoutePath } from './Router.js';
+import { ShellLayout } from './ShellLayout.js';
 
 const logger = loggerFactory(import.meta);
 
@@ -94,10 +95,10 @@ class Panel {
             data: obj,
             fileRender: async (options = { file: '', style: {}, class: '' }) => {
               await Content.RenderFile({ container: `.${idPanel}-cell-col-a-${id}`, ...options });
-              s(`.${idPanel}-img-spinner-${id}`).classList.add('hide');
+              s(`.${idPanel}-img-spinner-${id}`)?.classList.add('hide');
             },
             htmlRender: async ({ render }) => {
-              htmls(`.${idPanel}-cell-col-a-${id}`, render);
+              if (s(`.${idPanel}-cell-col-a-${id}`)) htmls(`.${idPanel}-cell-col-a-${id}`, render);
             },
           });
         if (entryPath && options.share && options.share.copyLink) {
@@ -380,25 +381,8 @@ class Panel {
                               e.stopPropagation();
                               const tagText = tagEl.textContent.trim();
 
-                              // Open search bar if closed
-                              if (
-                                !s('.main-body-btn-ui-bar-custom-open').classList.contains('hide') ||
-                                !s(`.main-body-btn-ui-open`).classList.contains('hide')
-                              )
-                                s('.main-body-btn-bar-custom').click();
-
-                              // Find and populate search box if it exists
-                              const searchBox = s('.top-bar-search-box');
-                              if (searchBox) {
-                                searchBox.value = tagText;
-                                searchBox.focus();
-
-                                // Trigger input event to start search
-                                const inputEvent = new Event('input', { bubbles: true });
-                                searchBox.dispatchEvent(inputEvent);
-
-                                logger.info(`Tag clicked: ${tagText} - search triggered`);
-                              }
+                              ShellLayout.focusSearch(tagText);
+                              logger.info(`Tag clicked: ${tagText} - search triggered`);
                             };
                           });
                         }, 100);

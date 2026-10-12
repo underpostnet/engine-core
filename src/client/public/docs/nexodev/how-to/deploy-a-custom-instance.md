@@ -116,7 +116,7 @@ An instance config may declare K8S-native lifecycle hooks and probes. These spli
 {
   "id": "mmo-server",
   "runtime": "cyberia-server",
-  "image": "underpost/cyberia-server:v3.4.5",
+  "image": "underpost/cyberia-server:v3.5.0",
   "fromPort": 8081,
   "toPort": 8081,
   "cmd": {
@@ -191,7 +191,7 @@ The `instance` and `instance-build-manifest` runners recognise a non-standard `i
 ```jsonc
 {
   "id": "mmo-server",
-  "image": "underpost/cyberia-server:v3.4.5",
+  "image": "underpost/cyberia-server:v3.5.0",
   "lifecycle": {
     "development": {
       "imagePullPolicy": "Always",
@@ -219,7 +219,7 @@ This compiles to the following container snippet in the rendered manifest:
 
 ```yaml
 - name: dd-cyberia-mmo-server-production-blue
-  image: underpost/cyberia-server:v3.4.5
+  image: underpost/cyberia-server:v3.5.0
   imagePullPolicy: Always
   …
   lifecycle:
@@ -323,13 +323,13 @@ CYBERIA_DATA_SERVER_URL=https://www.cyberiaonline.com
 ```
 
 The generic `dispatchBuildInstanceEnv` hook in `src/server/runtime/conf.js` selects a
-builder by deploy id. Cyberia registers `buildCyberiaMmoInstanceEnv` from
-`src/projects/cyberia/instance-data.js`. The generic root variant has an empty
-code and slug; Cyberia maps it to `DEFAULT_INSTANCE_CODE` from
-`SharedDefaultsCyberia.js` while keeping path `/`. Non-root variants derive their
-literal code and base path. Origins, API keys, and other operator values remain
-unchanged, and separate canonical files continue to provide environment-specific
-values.
+builder by deploy id: the `buildInstanceEnv` export of `src/projects/<project>/instance-data.js`.
+Cyberia takes each code from its release content, `src/projects/cyberia/content/release-content.js`:
+the code of the world the variant path serves, and `CYBERIA_DEFAULT_INSTANCE` from the `/` world.
+`cyberia release build` writes the same paths into the `variants` of `mmo-server` and `mmo-client`.
+Origins, API keys, and other operator values remain unchanged, and separate canonical files
+continue to provide environment-specific values. Every build writes both env files of each
+instance.
 
 Do not add an `env` object to `multiInstance`. It is rejected so configuration
 and secrets cannot drift into topology JSON. Add application-specific derived
@@ -962,9 +962,9 @@ The Cyberia MMO ships two instances out of the box under deploy id `dd-cyberia`.
 
 - **`mmo-client`** — `runtime: "cyberia-client"` (Dockerfile at `src/runtime/cyberia-client/Dockerfile`). The Python static-file server `server.py` serves the pre-built WASM bundle from `bin/`. Development uses `8082` (debug port); production uses `8081`. Its canonical env files provide the client build/runtime origins and annotated instance code/base path; it needs no gRPC wiring.
 
-Both Dockerfiles install `underpost@${UNDERPOST_VERSION}` at build time (`ARG UNDERPOST_VERSION=3.4.5`), so the `cmd` entries can call `underpost state set container-status …` without paying an `npm install -g` cost on every pod boot. The two CI workflows that publish these images forward `UNDERPOST_VERSION` as a build-arg to keep the in-image CLI aligned with the image tag.
+Both Dockerfiles install `underpost@${UNDERPOST_VERSION}` at build time (`ARG UNDERPOST_VERSION=3.5.0`), so the `cmd` entries can call `underpost state set container-status …` without paying an `npm install -g` cost on every pod boot. The two CI workflows that publish these images forward `UNDERPOST_VERSION` as a build-arg to keep the in-image CLI aligned with the image tag.
 
-Both instances also set `lifecycle.<env>.imagePullPolicy: "Always"` so kubelet re-pulls the published image on every rollout — the CI tags (`v3.4.5`, `v3.4.5`, …) move forward only through coordinated bumps, but the registry image itself can be republished under the same tag during incident response, and `Always` ensures the cluster picks that up. See [imagePullPolicy — per-instance override](#imagepullpolicy--per-instance-override-extension).
+Both instances also set `lifecycle.<env>.imagePullPolicy: "Always"` so kubelet re-pulls the published image on every rollout — the CI tags (`v3.5.0`, `v3.5.0`, …) move forward only through coordinated bumps, but the registry image itself can be republished under the same tag during incident response, and `Always` ensures the cluster picks that up. See [imagePullPolicy — per-instance override](#imagepullpolicy--per-instance-override-extension).
 
 ## Best Practices
 

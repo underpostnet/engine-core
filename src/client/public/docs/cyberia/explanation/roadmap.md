@@ -1,6 +1,6 @@
 # Cyberia Online — Development Roadmap
 
-**Current version:** 3.4.5 | **Target milestone:** Open Alpha
+**Current version:** 3.5.0 | **Target milestone:** Open Alpha
 
 ---
 
@@ -34,13 +34,13 @@ Two derived values follow from them:
 
 **`itemId` is a label, never an identity.** `data.item.id` (`hatchet`, `skin-dark-001`,
 `floor-desert`) is a human-readable slug for authoring and display. It is not unique, and a label
-may be rebound to another definition. The `CyberiaItemCatalog` binds `itemId → olCid`, and every
-persisted reference pins the `objectLayerCid` it means. Rebinding a label never changes what
-pinned content means.
+may be rebound to another definition. The `CyberiaItemCatalog` alone binds `itemId → olCid`:
+content names items by item id, and an exported instance snapshot freezes the binding of each item
+it holds. [Runtime binding](runtime-binding.md) holds the lifecycle.
 
 ### Runtime handle
 
-The runtime handle for an Object Layer is the pair **label + pinned `olCid`**. No parallel
+The runtime handle for an Object Layer is the pair **label + resolved `olCid`**. No parallel
 reference type exists:
 
 ```
@@ -96,7 +96,7 @@ blockchain dependency**: no node, no deployed contract and no chain call is need
 | Lock                 | Contract                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------- |
 | Content identity     | `olCid` = CIDv1 raw sha2-256 of the canonical payload; one canonical serializer in Node, Go and C |
-| Label semantics      | `itemId` is a label; `CyberiaItemCatalog` binds it; persisted content pins `objectLayerCid`       |
+| Label semantics      | `itemId` is a label; `CyberiaItemCatalog` alone binds it; a snapshot freezes the binding          |
 | Token identity       | `tokenId = uint256(contentHash)`; a qualified asset is `chainId + contractAddress + tokenId`      |
 | Account identity     | CAIP-10 `accountId`; the address is the account, the session token is not                         |
 | Authentication       | SIWE (ERC-4361): challenge, nonce, single use, server-issued session token                        |
@@ -156,8 +156,8 @@ The three sets never share a key. No player key ever reaches a server process.
 | `cyberiaonline.com` | World content (per release), runtime state | `objectlayer.org`, `itemledger.com` over HTTP |
 
 No domain opens another domain's MongoDB. Cross-domain reads go through `/api/v1/` with a timeout, a
-bounded retry and a read cache. Cyberia authors content in a workspace database and serves it from
-versioned release databases, both apart from player state; [Content releases](content-releases.md) holds the model, the deploy stages and the
+bounded retry and a read cache. Cyberia serves content from versioned release databases, apart
+from player state; [Content releases](content-releases.md) holds the model, the deploy stages and the
 game server drain.
 
 ---
@@ -318,7 +318,7 @@ Hyperledger Besu (IBFT2 / QBFT, chainId 777771, gasPrice 0)
 | Coin balance (Fountain and Sink)  | Cyberia      | MongoDB (`PlayerState`)          | Game server  |
 | Equipment activation              | Cyberia      | Session, checkpointed to MongoDB | Game server  |
 | Item ownership                    | ItemLedger   | ERC-1155 balances                | Chain        |
-| CKY balance                       | ItemLedger   | ERC-1155 token 0                 | Chain        |
+| CKY balance                       | CryptoKoyn   | ERC-1155 token 0                 | Chain        |
 | Definition identity               | Object Layer | Canonical bytes                  | Content hash |
 
 Progress never moves on chain, and ownership never moves into the game database as a source of

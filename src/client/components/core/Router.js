@@ -4,7 +4,8 @@
  * URL architecture: the path is canonical identity, the query is optional state.
  *
  * - A resource with a public URL is identified only by a path parameter, through the `PublicRoutes`
- *   table shared with the server (`/u/:username`, `/entry/:stableSlug`, `/content/:stableSlug`).
+ *   table shared with the server (`/u/:username`, `/entry/:stableSlug`, `/content/:stableSlug`,
+ *   `/object-layer/:cid`).
  *   Components neither build nor parse these paths themselves: they call `publicRoutePath`,
  *   `navigatePublicRoute`, `presentPublicRoute` and `getPublicRouteParam`.
  * - The query string carries view and request state a page can present with or without —
@@ -69,7 +70,7 @@ const queryParamsChangeListeners = {};
  * @description Array of core UI component IDs that should not trigger modal close route changes.
  * @memberof PwaRouter
  */
-const coreUI = ['modal-menu', 'main-body', 'main-body-top', 'bottom-bar', 'board-notification'];
+const coreUI = ['modal-menu', 'main-body', 'bottom-bar', 'board-notification'];
 /**
  * @type {Object.<string, function>}
  * @description Holds event listeners for route changes that should close a modal.
@@ -352,7 +353,7 @@ const setQueryPath = (options = { path: '', queryPath: '' }, queryKey, navOption
 };
 
 /**
- * The dynamic public route (`profile`, `entry`, `content`) a path presents.
+ * The dynamic public route (`profile`, `entry`, `content`, `objectLayer`) a path presents.
  * @param {string} [pathname] - Defaults to the current location.
  * @returns {{ name: string, namespace: string, params: Object<string, string> } | null}
  * @memberof PwaRouter
@@ -504,7 +505,11 @@ const closeModalRouteChangeEvent = (options = {}) => {
     (id) => id !== closedId && (Modal.Data[id]?.options?.route || Modal.Data[id]?.options?.query),
   );
 
-  const topModalId = remainingModals.reverse().find((id) => Modal.Data[id]);
+  // The view raised last takes the path; views never raised follow their opening order.
+  const topModalId = remainingModals.reduce(
+    (top, id) => ((Modal.Data[id].raisedAt ?? 0) >= (Modal.Data[top]?.raisedAt ?? 0) ? id : top),
+    undefined,
+  );
 
   for (const event of Object.keys(closeModalRouteChangeEvents)) closeModalRouteChangeEvents[event]();
   if (topModalId) Modal.setTopModalCallback(topModalId);

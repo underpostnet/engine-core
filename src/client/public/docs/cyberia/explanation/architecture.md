@@ -60,7 +60,7 @@ Cyberia is one participating runtime on the platform. The content it runs on com
 
 Identity model, frozen:
 
-- `itemId` (`data.item.id`) is a semantic label. Many definitions may share it. Cyberia world content (entities, entity defaults, skills, quests, actions, inventory) names items by label; the `CyberiaItemCatalog` collection binds each label to one `olCid`, and `src/projects/cyberia/object-layer-catalog.js` is the one path that resolves it. No label resolves without a binding.
+- `itemId` (`data.item.id`) is a semantic label. Many definitions may share it. Cyberia world content (entities, entity defaults, skills, quests, actions, inventory) names items by label; the `CyberiaItemCatalog` collection binds each label to one `olCid`, and `src/projects/cyberia/catalog/object-layer-catalog.js` is the one path that resolves it. No label resolves without a binding.
 - `olCid` is the canonical identity of a definition, computed from its content before any pin or registration.
 - `tokenId` is ItemLedger's ERC-1155 representation, derived from `olCid`.
 - Ownership is chain state, read through ItemLedger, never stored in the Object Layer.
@@ -281,7 +281,7 @@ This is why the two acknowledgements diverge: a superseded tap is acked on arriv
 
 Skills are not coalesced: they fire on every accepted tap, so the uplink carries every tap and the inbound rate limiter (`DefaultMessageRate`, 30/s) is what bounds the stream.
 
-The client predicts every tap immediately and never waits on a cadence. `self.actionCooldownMs` is the skill-trigger period only; keyboard steering paces its _refresh_ by it, while a change of heading emits at once.
+The client predicts every tap immediately and never waits on a cadence. `self.actionCooldownMs` is the skill-trigger period only; steering, from the keys or the joystick, paces its _refresh_ by it, while a change of heading emits at once. `self.actionReadyInMs` is the time left on that cooldown, 0 when the next tap fires skills; the inventory bar draws it.
 
 ---
 

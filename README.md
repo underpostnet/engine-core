@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://underpost.net/assets/splash/apple-touch-icon-precomposed.png" alt="underpost engine core server"/>
+  <img src="https://underpost.net/apple-touch-icon-precomposed.png" alt="underpost engine core server"/>
 </p>
 
 <div align="center">
@@ -18,7 +18,7 @@
 <!-- CI/CD and health -->
 <div align="center">
 
-[![Node.js CI](https://img.shields.io/github/actions/workflow/status/underpostnet/engine/docker-image.ci.yml?branch=master&label=Node.js%20CI)](https://github.com/underpostnet/engine/actions/workflows/docker-image.ci.yml) [![Test](https://img.shields.io/github/actions/workflow/status/underpostnet/engine/coverall.ci.yml?branch=master&label=Test)](https://github.com/underpostnet/engine/actions/workflows/coverall.ci.yml) [![Coverage Status](https://coveralls.io/repos/github/underpostnet/engine/badge.svg?branch=master)](https://coveralls.io/github/underpostnet/engine?branch=master) [![Socket Badge](https://socket.dev/api/badge/npm/package/underpost/3.4.5)](https://socket.dev/npm/package/underpost/overview/3.4.5)
+[![Node.js CI](https://img.shields.io/github/actions/workflow/status/underpostnet/engine/docker-image.ci.yml?branch=master&label=Node.js%20CI)](https://github.com/underpostnet/engine/actions/workflows/docker-image.ci.yml) [![Test](https://img.shields.io/github/actions/workflow/status/underpostnet/engine/coverall.ci.yml?branch=master&label=Test)](https://github.com/underpostnet/engine/actions/workflows/coverall.ci.yml) [![Coverage Status](https://coveralls.io/repos/github/underpostnet/engine/badge.svg?branch=master)](https://coveralls.io/github/underpostnet/engine?branch=master) [![Socket Badge](https://badge.socket.dev/npm/package/underpost/v3.5.0)](https://socket.dev/npm/package/underpost/overview/3.5.0)
 
 </div>
 
@@ -97,7 +97,7 @@ npm run dev
 <!-- cli-index-start -->
 ## Underpost CLI
 
-> underpost ci/cd cli v3.4.5
+> underpost ci/cd cli v3.5.0
 
 **Usage:** `underpost [options] [command]`
 
@@ -149,5 +149,6 @@ npm run dev
 | [`package`](CLI-HELP.md#underpost-package) | Generates the package manifests a deploy id owns, from the engine manifest and the deploy's product catalog, and installs the dependencies that catalog pins. |
 | [`socketsecurity`](CLI-HELP.md#underpost-socketsecurity) | Security audit through Socket.dev: dependency security (advisories, supply chain alerts, reachability, security patches in .socket/manifest.json) and source code risk (alerts on this project's own code). |
 | [`release`](CLI-HELP.md#underpost-release) | Release orchestrator for building new versions and deploying releases of the Underpost CLI. |
+| [`source-release`](CLI-HELP.md#underpost-source-release) | Source channels, the Release Job and the release store. |
 
 <!-- cli-index-end -->

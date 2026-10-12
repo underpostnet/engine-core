@@ -10,7 +10,7 @@
  * @namespace ObjectLayerResolver
  */
 import { DataBaseProviderService } from '../../db/DataBaseProvider.js';
-import { canonicalObjectLayer } from '../../client/components/object-layer/ObjectLayerProtocol.js';
+import { canonicalObjectLayer } from '../../client/components/objectlayer-studio/ObjectLayerProtocol.js';
 import { domainOrigin, domainRead, domainWrite } from './domain-client.js';
 
 const localModel = (name, options) => {
@@ -64,6 +64,29 @@ export async function publishObjectLayer(definition) {
 }
 
 /**
+ * Purges a definition this domain published from the Object Layer authority: every record the
+ * authority stores of it. The authority lets only the domain that published it, or an admin, do
+ * this, and refuses a definition ItemLedger registers.
+ * @param {string} cid - Canonical Object Layer CID.
+ * @returns {Promise<Object|null>} The purge report of the authority; null when it holds no such definition.
+ * @throws {Error} When no authority URL is configured, or the authority refuses the purge.
+ * @memberof ObjectLayerResolver
+ */
+export async function purgeObjectLayer(cid) {
+  try {
+    return await domainWrite({
+      domain: 'object-layer',
+      path: `object-layer/purge/${cid}`,
+      method: 'DELETE',
+      body: { cid },
+    });
+  } catch (error) {
+    if (error.status === 404) return null;
+    throw error;
+  }
+}
+
+/**
  * The ItemLedger bindings of a CID, across chains and contracts.
  * @param {string} cid - Canonical Object Layer CID.
  * @param {import('../../api/types.js').RouterOptions} [options] - Router options of the calling deployment.
@@ -81,21 +104,33 @@ export async function resolveLedgerBindings(cid, options) {
 }
 
 /**
- * Which of several CIDs ItemLedger registers. Read from the local projection on the ItemLedger
- * host, from its API anywhere else.
+ * Which of several CIDs ItemLedger registers: the registration-safety check of every operation
+ * that removes a definition. A registered CID is protected. Read from the local projection on the
+ * ItemLedger host, from its API anywhere else.
  * @param {string[]} cids - Canonical Object Layer CIDs.
  * @param {import('../../api/types.js').RouterOptions} [options] - Router options of the calling deployment.
  * @returns {Promise<Set<string>>}
+ * @throws {Error} With status 503 when ItemLedger does not answer: the operation fails closed.
  * @memberof ObjectLayerResolver
  */
 export async function resolveRegisteredCids(cids, options) {
   if (cids.length === 0) return new Set();
   const ItemLedger = localSource('ItemLedger', 'item-ledger', 'item-ledger', options);
   if (ItemLedger) return new Set(await ItemLedger.distinct('objectLayerCid', { objectLayerCid: { $in: cids } }));
-  const registered = await Promise.all(
-    cids.map(async (cid) => ((await resolveLedgerBindings(cid, options)).length ? cid : null)),
-  );
-  return new Set(registered.filter(Boolean));
+  try {
+    const registered = await Promise.all(
+      cids.map(async (cid) => ((await resolveLedgerBindings(cid, options)).length ? cid : null)),
+    );
+    return new Set(registered.filter(Boolean));
+  } catch (error) {
+    throw Object.assign(
+      new Error(
+        `Registration safety: ItemLedger did not answer (${error.message}). ` +
+          'No definition is removed while its registration is unknown; retry when ItemLedger answers',
+      ),
+      { status: 503 },
+    );
+  }
 }
 
 /**

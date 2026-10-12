@@ -11,9 +11,32 @@ import crypto from 'crypto';
 import { loggerFactory } from '../server/ops/logger.js';
 import Underpost from '../index.js';
 import { shellArgumentFactory, shellExec } from '../server/runtime/process.js';
-import { crictlCommandFactory } from '../server/ops/cri.js';
+import { CRI_SOCKETS, crictlCommandFactory, resolveCriSocket } from '../server/ops/cri.js';
+import { assertSourceRevision } from '../server/release/source-release.js';
 
 const logger = loggerFactory(import.meta);
+
+/**
+ * The registry-qualified base images a Dockerfile pulls: no build stage, no `scratch`, no `$` reference.
+ * @param {string} dockerfile - The Dockerfile text.
+ * @returns {string[]}
+ */
+const dockerfileBaseImages = (dockerfile) => {
+  const stages = new Set();
+  const images = new Set();
+  for (const line of dockerfile.split('\n')) {
+    const match = line.match(/^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?/i);
+    if (!match) continue;
+    const [, image, stage] = match;
+    if (!stages.has(image.toLowerCase()) && image !== 'scratch' && !image.includes('$')) {
+      const segments = image.split('/');
+      const hasRegistry = segments.length > 1 && /[.:]|^localhost$/.test(segments[0]);
+      images.add(hasRegistry ? image : `docker.io/${segments.length > 1 ? image : `library/${image}`}`);
+    }
+    if (stage) stages.add(stage.toLowerCase());
+  }
+  return [...images];
+};
 
 /**
  * @class UnderpostImage
@@ -22,19 +45,44 @@ const logger = loggerFactory(import.meta);
  * building custom images, and loading them into specified Kubernetes clusters (Kind, Kubeadm, or K3s).
  * @memberof UnderpostImage
  */
+/**
+ * Loads an image archive into a kubeadm node's runtime. CRI-O reads root Podman's storage, so the
+ * archive goes there; containerd imports it with its digests, so a digest reference resolves.
+ * @param {string} tarFile
+ */
+const kubeadmImport = (tarFile) =>
+  shellExec(
+    resolveCriSocket() === CRI_SOCKETS.crio
+      ? `sudo podman load -i ${shellArgumentFactory(tarFile)}`
+      : `sudo ctr -n k8s.io images import --digests ${shellArgumentFactory(tarFile)}`,
+  );
+
 class UnderpostImage {
   static API = {
     /**
      * @method pullBaseImages
      * @description Ensures the base image prerequisites for the runtime Dockerfiles
      * are present on the host (currently `docker.io/rockylinux/rockylinux:9`). This
-     * only pulls — it does NOT build. Builds run with `podman build --pull=never`,
-     * so the base must exist locally beforehand; that is the sole purpose of this
-     * step. Combine with `--build` in the same command to pull-then-build.
+     * only pulls — it does NOT build. A build pulls the other bases of its own Dockerfile.
      * @memberof UnderpostImage
      */
     pullBaseImages() {
       shellExec(`sudo podman pull docker.io/rockylinux/rockylinux:9`);
+    },
+    /**
+     * @method pullDockerfileBaseImages
+     * @description Pulls each base image of a Dockerfile that root Podman does not hold.
+     * Builds run with `--pull=never`, so every base must exist locally.
+     * @param {string} dockerfilePath - The Dockerfile to read.
+     * @memberof UnderpostImage
+     */
+    pullDockerfileBaseImages(dockerfilePath) {
+      if (!fs.existsSync(dockerfilePath)) return;
+      for (const image of dockerfileBaseImages(fs.readFileSync(dockerfilePath, 'utf8'))) {
+        const quoted = shellArgumentFactory(image);
+        const held = shellExec(`sudo podman image exists ${quoted}`, { silent: true, silentOnError: true });
+        if (held.code !== 0) shellExec(`sudo podman pull ${quoted}`);
+      }
     },
     /**
      * @method build
@@ -47,9 +95,10 @@ class UnderpostImage {
      * @param {string} [options.version=''] - Version tag for the image.
      * @param {string} [options.imageOutPath=''] - Directory to save the image tar file.
      * @param {string} [options.dockerfileName=''] - Name of the Dockerfile (defaults to 'Dockerfile').
+     * @param {string} [options.target=''] - The build stage to stop at, for a multi-stage Dockerfile.
      * @param {boolean} [options.podmanSave=false] - If true, save the image as a tar archive using Podman.
      * @param {boolean} [options.kind=false] - If true, load the image archive into a Kind cluster.
-     * @param {boolean} [options.kubeadm=false] - If true, load the image archive into a Kubeadm cluster (uses 'ctr').
+     * @param {boolean} [options.kubeadm=false] - If true, load the image into the Kubeadm node runtime (CRI-O or containerd).
      * @param {boolean} [options.k3s=false] - If true, load the image archive into a K3s cluster (uses 'k3s ctr').
      * @param {boolean} [options.dockerCompose=false] - If true, load the image archive into the local Docker store for Docker Compose.
      * @param {boolean} [options.reset=false] - If true, perform a no-cache build.
@@ -63,6 +112,7 @@ class UnderpostImage {
         version: '',
         imageOutPath: '',
         dockerfileName: '',
+        target: '',
         podmanSave: false,
         kind: false,
         kubeadm: false,
@@ -78,6 +128,7 @@ class UnderpostImage {
         version,
         imageOutPath,
         dockerfileName,
+        target,
         podmanSave,
         kind,
         kubeadm,
@@ -134,7 +185,7 @@ class UnderpostImage {
       const secretArgs = secretFlags.length ? ` ${secretFlags.join(' ')}` : '';
       if (secretFlags.length) logger.info('Passing host credentials as build secrets', { ids: secretFlags.length });
 
-      // Non-secret build args (e.g. INSTANCE_CODES for engine-cyberia): injected
+      // Non-secret build args: injected
       // dynamically from `options.buildArgs`, overriding the Dockerfile's ARG
       // defaults. Unlike secrets these DO persist in image metadata, so only
       // non-sensitive values belong here.
@@ -143,12 +194,12 @@ class UnderpostImage {
         .map(([k, v]) => `--build-arg ${shellArgumentFactory(`${k}=${v}`)}`);
       const buildArgStr = buildArgFlags.length ? ` ${buildArgFlags.join(' ')}` : '';
 
+      const dockerfile = `./${dockerfileName && typeof dockerfileName === 'string' ? dockerfileName : 'Dockerfile'}`;
       if (path)
         try {
+          UnderpostImage.API.pullDockerfileBaseImages(nodePath.join(path, dockerfile));
           shellExec(
-            `cd ${shellArgumentFactory(path)} && sudo podman build -f ${shellArgumentFactory(
-              `./${dockerfileName && typeof dockerfileName === 'string' ? dockerfileName : 'Dockerfile'}`,
-            )} -t ${shellArgumentFactory(imageName)} --pull=never --cap-add=CAP_AUDIT_WRITE${cache}${secretArgs}${buildArgStr} --network host`,
+            `cd ${shellArgumentFactory(path)} && sudo podman build -f ${shellArgumentFactory(dockerfile)} -t ${shellArgumentFactory(imageName)}${target ? ` --target ${shellArgumentFactory(target)}` : ''} --pull=never --cap-add=CAP_AUDIT_WRITE${cache}${secretArgs}${buildArgStr} --network host`,
           );
         } finally {
           for (const file of secretTmpFiles) {
@@ -159,19 +210,55 @@ class UnderpostImage {
             }
           }
         }
-      // Loading into any target requires the tar archive, so imply the save when
-      // one is set (kind/kubeadm/k3s/docker-compose) even if --podman-save was omitted.
-      const loadTarget = kind === true || kubeadm === true || k3s === true || dockerCompose === true;
+      // Loading into any target requires the tar archive, so imply the save when one is set
+      // (kind/kubeadm/k3s/docker-compose) even if --podman-save was omitted. A CRI-O node needs
+      // none: the root build above already wrote the image where CRI-O reads it.
+      const crio = kubeadm === true && resolveCriSocket() === CRI_SOCKETS.crio;
+      const loadTarget = kind === true || (kubeadm === true && !crio) || k3s === true || dockerCompose === true;
       if (podmanSave === true || loadTarget) {
         if (fs.existsSync(tarFile)) fs.removeSync(tarFile);
         shellExec(`podman save -o ${shellArgumentFactory(tarFile)} ${shellArgumentFactory(podManImg)}`);
       }
       if (kind === true) shellExec(`sudo kind load image-archive ${shellArgumentFactory(tarFile)}`);
-      else if (kubeadm === true) shellExec(`sudo ctr -n k8s.io images import ${shellArgumentFactory(tarFile)}`);
+      else if (kubeadm === true && !crio) kubeadmImport(tarFile);
       else if (k3s === true) shellExec(`sudo k3s ctr images import ${shellArgumentFactory(tarFile)}`);
       // Independent of any cluster target: make the local image available to the
       // Docker daemon so `docker compose` can resolve it (e.g. ENGINE_CYBERIA_IMAGE).
       if (dockerCompose === true) shellExec(`sudo docker load -i ${shellArgumentFactory(tarFile)}`);
+    },
+    /**
+     * @method release
+     * @description The image a container release deploys, by digest. The public channel pulls the
+     * `latest` image CI pushed (`<repository>:latest`); the private channel builds the checkout at
+     * the exact revision on this host. Either way the node runtime then holds it,
+     * and the digest it reports names it.
+     * @param {object} options
+     * @param {string} options.imageName - The registry repository, e.g. `underpost/cyberia-server`.
+     * @param {string} options.revision - The exact source revision.
+     * @param {string} [options.path] - The checkout to build from, for the private channel.
+     * @param {boolean} [options.k3s] - The node runtime is K3s' embedded containerd.
+     * @returns {string} `<repository>@sha256:<digest>`.
+     * @memberof UnderpostImage
+     */
+    release({ imageName, revision, path = '', k3s = false }) {
+      const exact = assertSourceRevision(revision);
+      const repository = `${imageName || ''}`.replace(/[:@].*$/, '');
+      if (!repository) throw new Error('image --release needs --image-name <repository>');
+      const name = repository.split('/').pop();
+      const reference = path ? `localhost/${name}:${exact}` : `${repository}:latest`;
+      if (path) UnderpostImage.API.build({ path, imageName: `${name}:${exact}`, kubeadm: !k3s, k3s });
+      else shellExec(crictlCommandFactory(`pull ${shellArgumentFactory(reference)}`, { k3s }));
+      const status = JSON.parse(
+        shellExec(crictlCommandFactory(`inspecti -o json ${shellArgumentFactory(reference)}`, { k3s }), {
+          stdout: true,
+          silent: true,
+          disableLog: true,
+        }),
+      );
+      const digest = (status?.status?.repoDigests ?? []).find((entry) => entry.includes(`${name}@sha256:`));
+      if (!digest) throw new Error(`The node runtime reports no digest for ${reference}`);
+      console.log(digest);
+      return digest;
     },
     /**
      * @method importTar
@@ -183,7 +270,7 @@ class UnderpostImage {
      * @param {object} options - CLI options.
      * @param {string} options.importTar - Path to the image tar archive (e.g. `./image-v1.0.0.tar`).
      * @param {boolean} [options.kind] - Load into the Kind cluster (`kind load image-archive`).
-     * @param {boolean} [options.kubeadm] - Import into kubeadm containerd (`ctr -n k8s.io images import`).
+     * @param {boolean} [options.kubeadm] - Load into the kubeadm node runtime (CRI-O or containerd).
      * @param {boolean} [options.k3s] - Import into k3s containerd (`k3s ctr images import`).
      * @param {boolean} [options.dockerCompose] - Load into the local Docker daemon (`docker load`) for Docker Compose.
      * @returns {void}
@@ -201,7 +288,7 @@ class UnderpostImage {
         targets.push('kind');
       }
       if (kubeadm === true) {
-        shellExec(`sudo ctr -n k8s.io images import ${shellArgumentFactory(importTar)}`);
+        kubeadmImport(importTar);
         targets.push('kubeadm');
       }
       if (k3s === true) {

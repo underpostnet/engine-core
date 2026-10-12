@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import { deployEnvFactory, getNpmRootPath, getUnderpostRootPath } from '../server/runtime/environment.js';
 import { commitData } from '../client/components/core/CommonJs.js';
 import { registerDomainCommand } from './domains.js';
-import { TEST_PROJECTS, testDomainNames } from '../server/build/testing.js';
+import { TEST_FOOTPRINTS, TEST_PROJECTS, testDomainNames } from '../server/build/testing.js';
 import { EXECUTION_PROFILES, profileFromOptionsFactory, setExecutionProfile } from '../server/build/execution.js';
 import { SEVERITIES } from '../server/security/socketsecurity.js';
 
@@ -223,6 +223,14 @@ program
   .option('--body-components <paths>', 'Comma-separated SSR body component paths.')
 
   .option('--build-path <build-path>', 'Sets a custom build path for static documents or assets.')
+  .option(
+    '--site-root <dir>',
+    'Sets the directory the site serves at the build path, where the build writes the underpost.manifest the page links (default: the output directory).',
+  )
+  .option(
+    '--application <name>',
+    'Sets the application the build manifest names (default: the page component name). Pages of one site share it.',
+  )
   .option('--env <env>', 'Sets the environment for the static build (e.g., "development", "production").')
   .option('--minify', 'Minify HTML output (default: true for production).')
   .option('--no-minify', 'Disable HTML minification.')
@@ -272,6 +280,12 @@ program
   )
   .option('--unblock-ingress-port <ports>', 'Withdraws the port rules --block-ingress-port installed.')
   .option('--mac', 'Prints the MAC address of the main network interface.')
+  .option(
+    '--static-ipv4',
+    "Pins the default interface's current IPv4 address, gateway and DNS as a static NetworkManager profile. " +
+      'A timer restores the previous profile after 5 minutes unless the new binding is verified.',
+  )
+  .option('--dry-run', 'With --static-ipv4, prints the commands without applying them.')
   .description('Displays the current public machine IP addresses.')
   .action(Underpost.dns.ipDispatcher);
 
@@ -511,6 +525,11 @@ program
   .option('--dev', 'Use development mode.')
   .option('--pull-dockerhub <dockerhub-image>', 'Sets a custom Docker Hub image for base image pulls.')
   .option(
+    '--release',
+    'Container release: print the digest of the image for --revision, pulled from CI (latest) or, with --path, built here.',
+  )
+  .option('--revision <sha>', 'With --release: the exact source revision.')
+  .option(
     '--import-tar <tar-path>',
     'Load a pre-built image tar archive (e.g. ./image-v1.0.0.tar) into the enabled target(s) without building. Combine with --kind, --kubeadm, --k3s and/or --docker-compose; the archive is loaded into each enabled one.',
   )
@@ -521,6 +540,7 @@ program
     if (options.pullBase) Underpost.image.pullBaseImages(options);
     if (options.build) Underpost.image.build(options);
     if (options.importTar) Underpost.image.importTar(options);
+    if (options.release) Underpost.image.release(options);
     if (options.pullDockerhub)
       Underpost.image.pullDockerHubImage({ ...options, dockerhubImage: options.pullDockerhub });
   });
@@ -713,8 +733,14 @@ program
   .option('--expose-grafana', 'Republishes Grafana with --grafana-host / --node-port without redeploying the stack.')
   .option(
     '--webhook-token',
-    'Prints the shared event webhook token, to persist as UNDERPOST_EVENT_TOKEN in the cron deploy env.',
+    'Prints the shared event webhook token, to persist as UNDERPOST_EVENT_TOKEN in the host configuration.',
   )
+  .option(
+    '--prune-series',
+    'Deletes Prometheus series of targets the current configuration no longer renders (retired domains and probes). ' +
+      'Runs after --sync-prom when both are given.',
+  )
+  .option('--dry-run', 'With --prune-series, lists the retired series without deleting them.')
   .option(
     '--node-name <k8s-node-name>',
     'Pins every monitoring workload to this node; moving Grafana deletes and recreates its node-local data.',
@@ -913,8 +939,8 @@ const edgeCommandFactory = (name, description) =>
     .option('--wireguard-stop', 'Tears down the interface and removes its transient packet rules.')
     .option('--check', 'Waits for an active interface and a fresh handshake with its required peer.')
     .option('--check-timeout <seconds>', 'Maximum wait for --check (default: 30).')
-    .option('--expected-role <role>', 'Refuses restart/check unless this host has the expected node role.')
-    .option('--expected-id <peer-id>', 'Refuses restart/check unless this node represents the expected peer id.')
+    .option('--expected-role <role>', 'Refuses setup/restart/check unless this host has the expected node role.')
+    .option('--expected-id <peer-id>', 'Refuses setup/restart/check unless this node represents the expected peer id.')
     .option('--wireguard-reset', 'Removes generated host state, keeping keys, topology and node identity.')
     .option('--wireguard-reinstall', 'Full purge, package reinstall and re-key; updates the selected topology key.')
     .option('--dry-run', 'Prints the files and commands the run would apply, without touching the host.')
@@ -986,6 +1012,11 @@ program
   .option('--volume-mount-path <volume-mount-path>', 'Optional: Specifies the volume mount path for test execution.')
   .option('--volume-type <volume-type>', 'Optional: Specifies the volume type for test execution.')
   .option('--image-name <image-name>', 'Optional: Specifies the image name for test execution.')
+  .option(
+    '--source-revision <sha>',
+    'For instance: run the image released for this exact source revision, by digest (CI image latest, or a build from --build-path).',
+  )
+  .option('--build-path <dir>', 'For instance with --source-revision: build that image from this checkout on the host.')
   .option('--image <image>', 'Container image the deployment pulls and runs (sync).')
   .option('--runtime-image <name>', 'src/runtime/<name> image family the cluster runner brings up (default "express").')
   .option(
@@ -1039,7 +1070,7 @@ program
   .option('--kind', 'Sets the kind cluster context for the runner execution.')
   .option(
     '--traffic <traffic>',
-    'Blue/green traffic colour to bake into generated manifests (default: blue). `stop` accepts a comma list, e.g. blue,green.',
+    'Blue/green traffic colour to bake into generated manifests (default: blue); the colour `promote` routes to. `stop` accepts a comma list, e.g. blue,green.',
   )
   .option('--git-clean', 'Runs git clean on volume mount paths before copying.')
   .option('--deploy-id <deploy-id>', 'Sets deploy id context for the runner execution.')
@@ -1142,6 +1173,15 @@ program
   .option('--grep <pattern>', 'Runs only tests whose name matches the pattern.')
   .option('--watch', 'Keeps the runner open and re-runs affected suites on change.')
   .option('--no-coverage', 'Skips coverage instrumentation and reporters.')
+  .option(
+    '--footprint <footprint>',
+    `How much of the machine the run can use. One of: ${Object.keys(TEST_FOOTPRINTS).join(', ')}.\n` +
+      Object.entries(TEST_FOOTPRINTS)
+        .map(([name, { description }]) => `  ${name.padEnd(9)} ${description}`)
+        .join('\n'),
+  )
+  .option('--batch-timeout <minutes>', 'Stops a batch that runs longer than this and records it as timeout.')
+  .option('--diagnose', 'Records peak memory and CPU per batch, and logs heap and coverage timings.')
   .option('--allure', 'Writes Allure results for the cluster dashboard alongside the run.')
   .option('--dashboard', 'Applies the Allure dashboard to the cluster and exits.')
   .option('--job', 'Runs the selected suite on the cluster as a Kubernetes Job (requires --image).')
@@ -1171,11 +1211,12 @@ program
   )
   .option(
     '--docker-compose-id <docker-compose-id>',
-    'Selects a canonical custom-workflow stack at engine-private/conf/<deploy-id>/docker-compose/<docker-compose-id>/ ' +
-      '(docker-compose.yml + compose.env + nginx.conf, used as-is; nginx/env generation is skipped). ' +
+    'Selects a custom-workflow stack at engine-private/conf/<deploy-id>/docker-compose/<docker-compose-id>/. ' +
+      'Its compose.env is operator-owned; docker-compose.yml and nginx.conf are rendered from the stack the project ' +
+      'declares in src/projects/<project>/compose-stack.js, else used as-is. ' +
       'e.g. --deploy-id dd-cyberia --docker-compose-id cyberia for the Cyberia MMO ecosystem.',
   )
-  .option('--env <env>', 'Deployment environment for non-default deploy ids (default: development).')
+  .option('--env <env>', 'Deployment environment of a non-default deploy id or a custom stack (default: development).')
   .option('--generate', 'Render dynamic supporting files (nginx router config, env-file, app-command override).')
   .option('--up', 'Start the full stack detached (regenerates config first).')
   .option('--down', 'Stop and remove containers (and orphans).')
@@ -1497,5 +1538,32 @@ program
       'Please specify --build, --deploy, --ci-push, or --pwa-build. Use "underpost release --help" for details.',
     );
   });
+
+program
+  .command('source-release')
+  .argument(
+    '<operation>',
+    'repository: the repository of a source channel; job: run a Release Job; ' +
+      'prune: remove the release workspaces of the store.',
+  )
+  .argument('<subject>', 'The public repository (repository), the release id (job), or the release to keep (prune).')
+  .option('--channel <channel>', 'For repository: the source channel, public or private.', 'public')
+  .option('--deploy-id <deploy-id>', 'For job: the deployment the release belongs to.')
+  .option('--image <image>', 'For job: the container image the Job runs.')
+  .option('--cmd <command>', 'For job: the shell command line the Job runs.')
+  .option('--env <env>', 'For job: the deployment environment.', 'production')
+  .option(
+    '--scope <scope>',
+    'For job: the configuration scope whose `app apply` Secret the Job reads, e.g. data-release.',
+  )
+  .option('--set-env <list>', 'For job: plain environment values, as KEY=value,KEY=value.')
+  .option('--node-name <node-name>', 'For job: pins the Job to the node that holds the release store.')
+  .option('--namespace <namespace>', 'For job: the Kubernetes namespace.', 'default')
+  .option('--store <path>', 'For job and prune: the release store path on the node.')
+  .option('--timeout <seconds>', 'For job: the deadline of the Job, in seconds.', '3600')
+  .option('--image-pull-policy <policy>', 'For job: Always, IfNotPresent or Never.', 'IfNotPresent')
+  .option('--dry-run', 'For job: print the Job manifest and run nothing.')
+  .description('Source channels, the Release Job and the release store.')
+  .action(Underpost.sourceRelease.callback);
 
 export { program };

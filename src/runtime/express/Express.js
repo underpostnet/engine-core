@@ -18,8 +18,7 @@ import { MailerProvider } from '../../mailer/MailerProvider.js';
 import { DataBaseProviderService } from '../../db/DataBaseProvider.js';
 import { createPeerServer } from '../../server/network/peer.js';
 import { createValkeyConnection } from '../../db/valkey/Valkey.js';
-import { applySecurity, authMiddlewareFactory, contentViewOf } from '../../server/security/auth.js';
-import { runInContentView } from '../../db/content-view.js';
+import { applySecurity, authMiddlewareFactory } from '../../server/security/auth.js';
 import { ssrMiddlewareFactory } from '../../client-builder/ssr.js';
 import { buildSwaggerUiOptions } from '../../client-builder/client-build-docs.js';
 
@@ -27,8 +26,8 @@ import { shellExec } from '../../server/runtime/process.js';
 import { Config, devProxyHostFactory, isDevProxyContext, isTlsDevProxy } from '../../server/runtime/conf.js';
 import { developmentOrigins } from '../../server/network/router.js';
 import { metricsPathFactory } from '../../server/ops/monitoring.js';
-import { keepRawBody, publicRouteFallbackFactory } from '../../server/network/middlewares.js';
-import { entryShellRendererFactory } from '../../server/network/entry-metadata.js';
+import { keepRawBody, publicRouteFallbackFactory, staticFileHeaders } from '../../server/network/middlewares.js';
+import { publicRouteRenderersFactory } from '../../server/network/public-route-renderers.js';
 import { apiPathOf } from '../../server/domain/api-contract.js';
 import { consumedApisOf, loadApiExtension } from '../../server/domain/consumed-api.js';
 
@@ -61,6 +60,7 @@ class ExpressService {
    * @param {object} [config.db] - Database configuration.
    * @param {string} [config.redirect] - URL or flag to indicate an HTTP redirect should be configured.
    * @param {Object<string,string>} [config.consumes] - APIs another domain owns, api → domain: served here from a local cache of the owner's content.
+   * @param {string[]} [config.publicRoutes] - `PublicRoutes` names whose shell this host renders with the resource's own metadata.
    * @param {Object<string,string>} [config.apiExtensions] - api → project whose `<api>.extension.js` adds this host's own routes to that API.
    * @param {boolean} [config.peer] - Whether to enable the peer server.
    * @param {object} [config.valkey] - Valkey connection configuration.
@@ -81,6 +81,7 @@ class ExpressService {
     apis,
     consumes,
     apiExtensions,
+    publicRoutes,
     origins,
     directory,
     useLocalSsl,
@@ -153,28 +154,26 @@ class ExpressService {
     });
 
     // Static file serving
-    app.use(
-      '/',
-      express.static(directory ? directory : `.${rootHostPath}`, {
-        setHeaders: (res, filePath) => {
-          if (filePath.includes('/assets/')) {
-            res.set('Access-Control-Allow-Origin', '*');
-            res.set('Cross-Origin-Resource-Policy', 'cross-origin');
-          }
-        },
-      }),
-    );
+    app.use('/', express.static(directory ? directory : `.${rootHostPath}`, { setHeaders: staticFileHeaders }));
     // The PWA shell for the dynamic public routes is the same built document a static view is,
     // served under the same headers: the security middleware below applies a nonce CSP that the
     // shell's inline scripts cannot satisfy. Only its own namespaces match, so no API route,
-    // asset or document is ever answered with it. An instance that resolves documents itself
-    // (its own database, the document API) renders each entry's metadata into its shell.
-    const resolvesDocuments = !apiBaseHost && !!db && Array.isArray(apis) && apis.includes('document');
+    // asset or document is ever answered with it. The host declares in `publicRoutes` the routes
+    // whose shell carries the resource's own metadata.
     app.use(
       publicRouteFallbackFactory({
         root: directory ? directory : `.${rootHostPath}`,
         path,
-        renderEntry: resolvesDocuments ? entryShellRendererFactory({ host, path, metadata }) : undefined,
+        renderers: await publicRouteRenderersFactory({
+          host,
+          path,
+          metadata,
+          publicRoutes,
+          apis,
+          consumes: consumed,
+          db,
+          apiBaseHost,
+        }),
       }),
     );
 
@@ -240,10 +239,6 @@ class ExpressService {
         const { GrpcServer } = await import(`../../grpc/${grpc.module}/grpc-server.js`);
         await GrpcServer.start({ host, path, port: grpc.port || 50051 });
       }
-
-      // A host with versioned content answers each request from the view its caller reads.
-      if (db?.partitions && Object.keys(db.partitions).length > 0)
-        app.use((req, res, next) => runInContentView(contentViewOf(req, { host, path }), next));
 
       // API router loading
       if (apis && apis.length > 0) {

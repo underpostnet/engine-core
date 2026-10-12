@@ -1,7 +1,9 @@
 import { Css, darkTheme, simpleIconsRender, ThemeEvents, Themes } from './Css.js';
+import { buildManifest } from './BuildManifest.js';
 import { Modal, SUBMENU_SELECTION_QUERY_KEY, renderViewTitle } from './Modal.js';
 import { coverallsUrl, githubPagesUrl, packageRepository, releaseUrl } from './Repository.js';
 import { Responsive } from './Responsive.js';
+import { ShellLayout } from './ShellLayout.js';
 import {
   listenQueryPathInstance,
   setQueryPath,
@@ -18,7 +20,6 @@ class Docs {
     if (!docData || !parentModal?.options) return;
     const ModalId = `modal-docs-${docData.type}`;
     const { barConfig } = await Themes[Css.currentTheme]();
-    const parentBarMode = parentModal.options.barMode;
     // A shell that draws from an icon set titles the view with it; the rest with the entry's icon.
     const { viewTitle } = Docs.Tokens[parentModalId] ?? {};
     await Modal.instance({
@@ -47,7 +48,6 @@ class Docs {
       route: 'docs',
       slideMenu: 'modal-menu',
       observer: true,
-      barMode: parentBarMode,
       query: true,
       RouterInstance: parentModal.options.RouterInstance,
     });
@@ -56,7 +56,7 @@ class Docs {
     let unbindIframeLayoutSync = null;
     if (iframeEl) {
       const scheduleViewLayoutSync = () => {
-        const sync = () => Modal.syncViewLayout();
+        const sync = () => ShellLayout.sync();
         sync();
         setTimeout(sync, 0);
         setTimeout(sync, 120);
@@ -92,14 +92,9 @@ class Docs {
             // never sees the keystroke unless the frame forwards it.
             const onIframeSearchShortcut = (e) => {
               if (!e.shiftKey || e.key?.toLowerCase() !== 'k') return;
-              const searchBox = s(`.top-bar-search-box`);
-              if (!searchBox) return;
               e.preventDefault();
               e.stopPropagation();
-              if (s(`.main-body-btn-ui-close`)?.classList.contains('hide')) s(`.main-body-btn-ui-open`).click();
-              searchBox.blur();
-              searchBox.focus();
-              searchBox.select();
+              ShellLayout.focusSearch();
             };
             iframeDoc.addEventListener('click', onIframeAnchorClick, true);
             iframeDoc.addEventListener('keydown', onIframeSearchShortcut);
@@ -196,7 +191,7 @@ class Docs {
   }
   // One entry per coverage report the build declared, each framed from /docs/coverage/<id>.
   static coverageReports = () =>
-    (window.renderPayload.coverage ?? []).map(({ id, label }) => ({
+    buildManifest().documentation.coverage.map(({ id, label }) => ({
       type: `coverage-${id}`,
       icon: html`<img height="20" width="20" class="doc-icon-coverage" />`,
       text: label,
@@ -211,15 +206,15 @@ class Docs {
     return [
       {
         type: 'guide',
-        icon: html`<i class="fa-solid fa-book"></i>`,
+        icon: html`<i class="fa-solid fa-file-circle-question"></i>`,
         text: 'Documentation',
         url: function () {
           return `${getProxyPath()}docs`;
         },
-        // The shell names the domain the view navigates; its documents are the only ones listed.
-        renderHtml: async ({ domain = '' } = {}) => {
+        // The build names the domains the view navigates; their documents are the only ones listed.
+        renderHtml: async () => {
           const { Documentation } = await import('./Documentation.js');
-          return await Documentation.instance({ path: getQueryParams().doc ?? '', domain });
+          return await Documentation.instance({ path: getQueryParams().doc ?? '' });
         },
       },
       {
@@ -255,7 +250,7 @@ class Docs {
         icon: html`<i class="fa-brands fa-osi"></i>`,
         text: 'Source Docs',
         url: function () {
-          return `${getProxyPath()}docs/engine/${window.renderPayload.version.replace('v', '')}`;
+          return `${getProxyPath()}docs/engine/${buildManifest().version.replace('v', '')}`;
         },
       },
       {
@@ -333,7 +328,6 @@ class Docs {
    * The docs landing and submenu of one shell.
    * @param {object} options
    * @param {string} options.idModal - Id of the modal the landing renders in.
-   * @param {string} [options.domain] - Documentation domain the shell owns, e.g. `object-layer`.
    * @param {string[]} [options.disabled] - Entry types this shell does not deploy.
    */
   static async instance(options = {}) {
@@ -344,6 +338,7 @@ class Docs {
     // under the submenu key: `/docs?cid=src` is a published deep link.
     const openDoc = async (docData) => {
       if (docData.external) return (location.href = docData.url());
+      ShellLayout.closeDrawer();
       // A deep link that already selects this entry keeps the rest of its state: `doc`, an anchor.
       if (getQueryParams()[SUBMENU_SELECTION_QUERY_KEY] !== docData.type)
         setQueryPath({ path: 'docs', queryPath: docData.type }, SUBMENU_SELECTION_QUERY_KEY);
@@ -363,11 +358,6 @@ class Docs {
           routeId: 'docs',
           event: (path) => {
             if (s(`.btn-docs-${path}`)) s(`.btn-docs-${path}`).click();
-            if (Modal.mobileModal()) {
-              setTimeout(() => {
-                s(`.btn-close-modal-menu`).click();
-              });
-            }
           },
         },
         SUBMENU_SELECTION_QUERY_KEY,
@@ -383,195 +373,17 @@ class Docs {
 
     // One card per deployed entry: the landing and the submenu offer the same places, drawn with
     // the same icon when the shell draws from an image set.
-    const landingCards = Docs.Data.map((docData) => ({
-      id: docData.type,
-      docType: docData.type,
-      icon: options.subMenuIcon ? options.subMenuIcon(docData.type) : docData.icon,
-      title: docData.text,
-      description: Docs.cardDescription(docData),
-    }));
-
-    // A card resolves to a documented entry, never to a URL of its own: the
-    // submenu button and the card must open the same place.
-    const openLandingCard = async (docType) => {
-      const btn = s(`.btn-docs-${docType}`);
-      if (btn) return btn.click();
-      const docData = Docs.Data.find((d) => d.type === docType);
-      if (docData) await openDoc(docData);
-    };
-
-    setTimeout(() => {
-      for (const { id, docType } of landingCards) {
-        const cardEl = s(`.docs-card-container-${id}`);
-        if (!cardEl) continue;
-        cardEl.onclick = () => openLandingCard(docType);
-        // The card is a div, so the keyboard affordances a button would carry
-        // have to be declared and handled explicitly.
-        cardEl.onkeydown = (e) => {
-          if (e.key !== 'Enter' && e.key !== ' ') return;
-          e.preventDefault();
-          openLandingCard(docType);
-        };
-      }
+    return Modal.renderSubMenuLanding({
+      subMenuId: 'docs',
+      title: 'Documentation',
+      cards: Docs.Data.map((docData) => ({
+        id: docData.type,
+        icon: options.subMenuIcon ? options.subMenuIcon(docData.type) : docData.icon,
+        title: docData.text,
+        description: Docs.cardDescription(docData),
+        open: () => openDoc(docData),
+      })),
     });
-
-    return html`
-      <style>
-        /* The landing owns its entrance: a shell without this keyframe would leave every card
-           at its starting opacity, and the view would look empty. */
-        @keyframes docs-fade-in-up {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .docs-landing {
-          padding: 2rem;
-          max-width: 1200px;
-          margin: 0 auto;
-          box-sizing: border-box;
-        }
-        .docs-header {
-          text-align: center;
-          margin-bottom: 3rem;
-          opacity: 0;
-          animation: docs-fade-in-up 0.6s ease-out forwards;
-        }
-        .docs-header h1 {
-          font-size: 2.5rem;
-          margin: 0 0 1rem;
-          line-height: 1.2;
-        }
-        .docs-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-          gap: 1.5rem;
-          margin: 0;
-          padding: 0;
-          list-style: none;
-        }
-        .docs-card-container {
-          cursor: pointer;
-          opacity: 0;
-          animation: docs-fade-in-up 0.6s ease-out forwards;
-          border-radius: 8px;
-        }
-        .docs-card-container:focus-visible {
-          outline: 2px solid currentColor;
-          outline-offset: 3px;
-        }
-        .docs-card {
-          border-radius: 8px;
-          padding: 1.5rem;
-          display: flex;
-          flex-direction: column;
-          height: 100%;
-          box-sizing: border-box;
-          transition:
-            transform 0.25s ease,
-            background 0.25s ease,
-            border-color 0.25s ease;
-        }
-        .docs-card-container:hover .docs-card,
-        .docs-card-container:focus-visible .docs-card {
-          transform: translateY(-4px);
-        }
-        .card-icon {
-          font-size: 1.75rem;
-          width: 56px;
-          height: 56px;
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0 0 1.25rem;
-          transition: transform 0.25s ease;
-        }
-        /* A menu-sized image grows to the card; the menu offset it carries does not apply here. */
-        .card-icon img {
-          position: static;
-          width: 40px;
-          height: 40px;
-        }
-        .docs-card-container:hover .card-icon {
-          transform: scale(1.08);
-        }
-        .card-content {
-          flex: 1;
-        }
-        .card-content h3 {
-          margin: 0 0 0.5rem;
-          font-size: 1.25rem;
-          font-weight: 600;
-        }
-        .card-content p {
-          margin: 0;
-          font-size: 0.95rem;
-          line-height: 1.5;
-          opacity: 0.85;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .docs-header,
-          .docs-card-container {
-            animation: none;
-            opacity: 1;
-          }
-          .docs-card,
-          .card-icon {
-            transition: none;
-          }
-          .docs-card-container:hover .docs-card,
-          .docs-card-container:hover .card-icon {
-            transform: none;
-          }
-        }
-      </style>
-
-      <style>
-        ${landingCards
-          .map(
-            (_, index) => css`
-              .docs-card-container:nth-child(${index + 1}) {
-                animation-delay: ${0.1 * (index + 1)}s;
-              }
-            `,
-          )
-          .join('')}
-      </style>
-
-      <div class="docs-landing">
-        <div class="docs-header">
-          <h1>Documentation</h1>
-        </div>
-
-        <ul class="docs-grid">
-          ${landingCards
-            .map(
-              ({ id, icon, title, description }) => html`
-                <div
-                  class="in docs-card-container docs-card-container-${id}"
-                  role="link"
-                  tabindex="0"
-                  aria-label="${title}: ${description}"
-                >
-                  <li class="docs-card box-content-border hover">
-                    <div class="card-icon" aria-hidden="true">${icon}</div>
-                    <div class="card-content">
-                      <h3>${title}</h3>
-                      <p>${description}</p>
-                    </div>
-                  </li>
-                </div>
-              `,
-            )
-            .join('')}
-        </ul>
-      </div>
-    `;
   }
 }
 export { Docs };

@@ -28,7 +28,7 @@ The randomizer validates its bounds and uses the full signed range by default.
 
 ## Semantic bounds and balancing
 
-`STAT_TYPE_BOUNDS` in the same module declares the inclusive range each stat may take per item type. A weapon deals its effect and can cost resistance; a skin and a breastplate defend; a skill reaches; world content carries nothing. A type or stat absent there keeps the contract range.
+`STAT_TYPE_BOUNDS` in the same module declares the inclusive range each stat may take per item type. A weapon deals its effect and can cost resistance; a skin and a breastplate defend; a skill reaches; world content and consumables carry nothing. A type or stat absent there keeps the contract range.
 
 | Type          | effect | resistance | agility | range | intelligence | utility |
 | ------------- | -----: | ---------: | ------: | ----: | -----------: | ------: |
@@ -37,9 +37,10 @@ The randomizer validates its bounds and uses the full signed range by default.
 | `breastplate` |      0 |      5..30 |  -15..0 |     0 |         0..3 |    0..5 |
 | `skill`       |  0..15 |       0..5 |    0..5 | 5..30 |        0..10 |   0..10 |
 | `resource`    |      0 |      0..10 |       0 |     0 |            0 |       0 |
+| `consumable`  |      0 |          0 |       0 |     0 |            0 |       0 |
 | world content |      0 |          0 |       0 |     0 |            0 |       0 |
 
-`src/projects/cyberia/stat-balance.js` applies one policy to every object layer the `ol` command writes: import, batch import, generation, render rebuilds, and the derived-render refresh. `--normalize-stats` clamps the stats the content carries into its type's range. `--random-stats` draws every stat inside the range instead. `--min-stat` and `--max-stat` narrow the range; a request that leaves no overlap pins the stat to the semantic edge nearest it. The policy is a pure function of the content and the flags, so a run is deterministic and normalizing is idempotent.
+`src/projects/cyberia/stats/stat-balance.js` applies one policy to every object layer the `ol` command writes: import, batch import, generation, render rebuilds, and the derived-render refresh. `--normalize-stats` clamps the stats the content carries into its type's range. `--random-stats` draws every stat inside the range instead. `--min-stat` and `--max-stat` narrow the range; a request that leaves no overlap pins the stat to the semantic edge nearest it. The policy is a pure function of the content and the flags, so a run is deterministic and normalizing is idempotent.
 
 ## Aggregation and levels
 
@@ -195,7 +196,7 @@ node bin/cyberia.js stat-contract --check
 
 The generator writes the Go contract, C header, REST test fixtures, the cyberia-server copy of the gRPC schema, and its Go protobuf output. Do not edit these outputs by hand.
 Edit the gRPC schema in `src/grpc/cyberia/cyberia.proto`. The generator compiles it with `go run` and pinned buf and plugin versions, so it needs Go only.
-`node bin/cyberia.js run-workflow e2e-build` runs the generator first.
+`node bin/cyberia.js release build` runs the generator first.
 
 Inspect and validate content with:
 

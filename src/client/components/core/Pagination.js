@@ -6,6 +6,15 @@ import {
   unlistenQueryParamsChange,
 } from './Router.js';
 
+/** The page and the page size the query parameters name. */
+const pageQuery = (queryParams = getQueryParams()) => ({
+  page: parseInt(queryParams.page, 10) || 1,
+  limit: parseInt(queryParams.limit, 10) || 10,
+});
+
+/** A new filter or sort reads from the first page: `refresh` runs on it, else the query moves to it. */
+const firstPage = (refresh) => (1 === pageQuery().page ? refresh() : setQueryParams({ page: 1 }));
+
 class AgPagination extends HTMLElement {
   constructor() {
     super();
@@ -13,9 +22,9 @@ class AgPagination extends HTMLElement {
     this._gridId = null;
     this._queryParamsListenerId = null;
     this._ownerRoute = null;
-    let queryParams = getQueryParams();
-    this._currentPage = parseInt(queryParams.page, 10) || 1;
-    this._limit = parseInt(queryParams.limit, 10) || 10;
+    const { page, limit } = pageQuery();
+    this._currentPage = page;
+    this._limit = limit;
     this._totalPages = 1;
     this._hasTotalPages = false;
     this._totalItems = 0;
@@ -86,8 +95,7 @@ class AgPagination extends HTMLElement {
   }
 
   handleQueryParamsChange(queryParams) {
-    const newPage = parseInt(queryParams.page, 10) || 1;
-    const newLimit = parseInt(queryParams.limit, 10) || 10;
+    const { page: newPage, limit: newLimit } = pageQuery(queryParams);
 
     let shouldUpdate = false;
 
@@ -106,6 +114,14 @@ class AgPagination extends HTMLElement {
         new CustomEvent('pagination-query-params-change', { detail: { page: this._currentPage, limit: this._limit } }),
       );
     }
+  }
+
+  /** Shows the page a server read answered. */
+  showPage({ page, limit, total, totalPages }) {
+    this.setAttribute('limit', limit);
+    this.setAttribute('current-page', page);
+    this.setAttribute('total-items', total);
+    this.setAttribute('total-pages', Math.max(1, totalPages));
   }
 
   validateCurrentPage() {
@@ -273,4 +289,4 @@ class AgPagination extends HTMLElement {
 
 customElements.define('ag-pagination', AgPagination);
 
-export { AgPagination };
+export { AgPagination, firstPage, pageQuery };

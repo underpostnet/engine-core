@@ -1,6 +1,6 @@
 # Underpost CLI
 
-> underpost ci/cd cli v3.4.5
+> underpost ci/cd cli v3.5.0
 
 **Usage:** `underpost [options] [command]`
 
@@ -52,6 +52,7 @@
 | [`package`](#underpost-package) | Generates the package manifests a deploy id owns, from the engine manifest and the deploy's product catalog, and installs the dependencies that catalog pins. |
 | [`socketsecurity`](#underpost-socketsecurity) | Security audit through Socket.dev: dependency security (advisories, supply chain alerts, reachability, security patches in .socket/manifest.json) and source code risk (alerts on this project's own code). |
 | [`release`](#underpost-release) | Release orchestrator for building new versions and deploying releases of the Underpost CLI. |
+| [`source-release`](#underpost-source-release) | Source channels, the Release Job and the release store. |
 
 ## Command reference
 
@@ -298,6 +299,8 @@ Manages static build of page, bundles, and documentation with comprehensive cust
 | `--head-components <paths>` | Comma-separated SSR head component paths. |
 | `--body-components <paths>` | Comma-separated SSR body component paths. |
 | `--build-path <build-path>` | Sets a custom build path for static documents or assets. |
+| `--site-root <dir>` | Sets the directory the site serves at the build path, where the build writes the underpost.manifest the page links (default: the output directory). |
+| `--application <name>` | Sets the application the build manifest names (default: the page component name). Pages of one site share it. |
 | `--env <env>` | Sets the environment for the static build (e.g., "development", "production"). |
 | `--minify` | Minify HTML output (default: true for production). |
 | `--no-minify` | Disable HTML minification. |
@@ -360,6 +363,8 @@ Displays the current public machine IP addresses.
 | `--block-ingress-port <ports>` | Blocks new inbound traffic on comma-separated TCP ports, leaving the management path reachable. |
 | `--unblock-ingress-port <ports>` | Withdraws the port rules --block-ingress-port installed. |
 | `--mac` | Prints the MAC address of the main network interface. |
+| `--static-ipv4` | Pins the default interface's current IPv4 address, gateway and DNS as a static NetworkManager profile. A timer restores the previous profile after 5 minutes unless the new binding is verified. |
+| `--dry-run` | With --static-ipv4, prints the commands without applying them. |
 | `-h, --help` | display help for command |
 
 ---
@@ -621,6 +626,8 @@ Manages Docker images, including building, saving, and loading into Kubernetes c
 | `--reset` | Performs a build without using the cache. |
 | `--dev` | Use development mode. |
 | `--pull-dockerhub <dockerhub-image>` | Sets a custom Docker Hub image for base image pulls. |
+| `--release` | Container release: print the digest of the image for --revision, pulled from CI (latest) or, with --path, built here. |
+| `--revision <sha>` | With --release: the exact source revision. |
 | `--import-tar <tar-path>` | Load a pre-built image tar archive (e.g. ./image-v1.0.0.tar) into the enabled target(s) without building. Combine with --kind, --kubeadm, --k3s and/or --docker-compose; the archive is loaded into each enabled one. |
 | `-h, --help` | display help for command |
 
@@ -824,7 +831,9 @@ Manages health server monitoring, the cluster observability stack, and host dash
 | `--grafana-host <host>` | Publishes Grafana at https://<host>/grafana through the edge Gateway that already serves that hostname. |
 | `--node-port` | Publishes Grafana on the node's LAN address (port 32300). |
 | `--expose-grafana` | Republishes Grafana with --grafana-host / --node-port without redeploying the stack. |
-| `--webhook-token` | Prints the shared event webhook token, to persist as UNDERPOST_EVENT_TOKEN in the cron deploy env. |
+| `--webhook-token` | Prints the shared event webhook token, to persist as UNDERPOST_EVENT_TOKEN in the host configuration. |
+| `--prune-series` | Deletes Prometheus series of targets the current configuration no longer renders (retired domains and probes). Runs after --sync-prom when both are given. |
+| `--dry-run` | With --prune-series, lists the retired series without deleting them. |
 | `--node-name <k8s-node-name>` | Pins every monitoring workload to this node; moving Grafana deletes and recreates its node-local data. |
 | `--kubeadm` | Treats the cluster as kubeadm when resolving node and host addresses. |
 | `--kind` | Treats the cluster as Kind (Docker nodes) when resolving node and host addresses. |
@@ -957,8 +966,8 @@ Manages the WireGuard L3 hub-and-spoke transport and the HAProxy edge gateway in
 | `--wireguard-stop` | Tears down the interface and removes its transient packet rules. |
 | `--check` | Waits for an active interface and a fresh handshake with its required peer. |
 | `--check-timeout <seconds>` | Maximum wait for --check (default: 30). |
-| `--expected-role <role>` | Refuses restart/check unless this host has the expected node role. |
-| `--expected-id <peer-id>` | Refuses restart/check unless this node represents the expected peer id. |
+| `--expected-role <role>` | Refuses setup/restart/check unless this host has the expected node role. |
+| `--expected-id <peer-id>` | Refuses setup/restart/check unless this node represents the expected peer id. |
 | `--wireguard-reset` | Removes generated host state, keeping keys, topology and node identity. |
 | `--wireguard-reinstall` | Full purge, package reinstall and re-key; updates the selected topology key. |
 | `--dry-run` | Prints the files and commands the run would apply, without touching the host. |
@@ -1017,8 +1026,8 @@ Manages the HAProxy edge gateway over the WireGuard transport (same subsystem as
 | `--wireguard-stop` | Tears down the interface and removes its transient packet rules. |
 | `--check` | Waits for an active interface and a fresh handshake with its required peer. |
 | `--check-timeout <seconds>` | Maximum wait for --check (default: 30). |
-| `--expected-role <role>` | Refuses restart/check unless this host has the expected node role. |
-| `--expected-id <peer-id>` | Refuses restart/check unless this node represents the expected peer id. |
+| `--expected-role <role>` | Refuses setup/restart/check unless this host has the expected node role. |
+| `--expected-id <peer-id>` | Refuses setup/restart/check unless this node represents the expected peer id. |
 | `--wireguard-reset` | Removes generated host state, keeping keys, topology and node identity. |
 | `--wireguard-reinstall` | Full purge, package reinstall and re-key; updates the selected topology key. |
 | `--dry-run` | Prints the files and commands the run would apply, without touching the host. |
@@ -1094,6 +1103,8 @@ Runs specified scripts using various runners.
 | `--volume-mount-path <volume-mount-path>` | Optional: Specifies the volume mount path for test execution. |
 | `--volume-type <volume-type>` | Optional: Specifies the volume type for test execution. |
 | `--image-name <image-name>` | Optional: Specifies the image name for test execution. |
+| `--source-revision <sha>` | For instance: run the image released for this exact source revision, by digest (CI image latest, or a build from --build-path). |
+| `--build-path <dir>` | For instance with --source-revision: build that image from this checkout on the host. |
 | `--image <image>` | Container image the deployment pulls and runs (sync). |
 | `--runtime-image <name>` | src/runtime/<name> image family the cluster runner brings up (default "express"). |
 | `--versions <deployment-versions>` | Comma-separated blue/green deployment versions (sync); unset resolves the next colour. |
@@ -1127,7 +1138,7 @@ Runs specified scripts using various runners.
 | `--kubeadm` | Sets the kubeadm cluster context for the runner execution. |
 | `--k3s` | Sets the k3s cluster context for the runner execution. |
 | `--kind` | Sets the kind cluster context for the runner execution. |
-| `--traffic <traffic>` | Blue/green traffic colour to bake into generated manifests (default: blue). `stop` accepts a comma list, e.g. blue,green. |
+| `--traffic <traffic>` | Blue/green traffic colour to bake into generated manifests (default: blue); the colour `promote` routes to. `stop` accepts a comma list, e.g. blue,green. |
 | `--git-clean` | Runs git clean on volume mount paths before copying. |
 | `--deploy-id <deploy-id>` | Sets deploy id context for the runner execution. |
 | `--user <user>` | Sets user context for the runner execution. |
@@ -1189,6 +1200,9 @@ Runs the test projects locally, inside deployment pods, or as a cluster Job with
 | `--grep <pattern>` | Runs only tests whose name matches the pattern. |
 | `--watch` | Keeps the runner open and re-runs affected suites on change. |
 | `--no-coverage` | Skips coverage instrumentation and reporters. |
+| `--footprint <footprint>` | How much of the machine the run can use. One of: safe, balanced, ci. safe One project per fresh process, one worker, one file and one test at a time, inside a host budget. The default. balanced One project per fresh process, two workers, parallel files where the project permits, inside a host budget. ci The whole selection in one process, on the Vitest default workers. For a runner that owns its machine. |
+| `--batch-timeout <minutes>` | Stops a batch that runs longer than this and records it as timeout. |
+| `--diagnose` | Records peak memory and CPU per batch, and logs heap and coverage timings. |
 | `--allure` | Writes Allure results for the cluster dashboard alongside the run. |
 | `--dashboard` | Applies the Allure dashboard to the cluster and exits. |
 | `--job` | Runs the selected suite on the cluster as a Kubernetes Job (requires --image). |
@@ -1224,8 +1238,8 @@ General-purpose Docker Compose development pipeline (mirrors the Kubernetes dev 
 | `--reset` | Comprehensive teardown (equivalent to cluster --reset): removes all stack containers, the network, named volumes (destroys data), orphans, and generated artifacts. |
 | `--force` | Force reinstall (--install), remove volumes (--down), or also drop the env-file (--reset). |
 | `--deploy-id <deploy-id>` | Deployment to run as the app container (default: dd-default). 'dd-default' self-bootstraps a fresh engine; any other id runs the standard 'underpost start' command (mirrors src/cli/deploy.js). |
-| `--docker-compose-id <docker-compose-id>` | Selects a canonical custom-workflow stack at engine-private/conf/<deploy-id>/docker-compose/<docker-compose-id>/ (docker-compose.yml + compose.env + nginx.conf, used as-is; nginx/env generation is skipped). e.g. --deploy-id dd-cyberia --docker-compose-id cyberia for the Cyberia MMO ecosystem. |
-| `--env <env>` | Deployment environment for non-default deploy ids (default: development). |
+| `--docker-compose-id <docker-compose-id>` | Selects a custom-workflow stack at engine-private/conf/<deploy-id>/docker-compose/<docker-compose-id>/. Its compose.env is operator-owned; docker-compose.yml and nginx.conf are rendered from the stack the project declares in src/projects/<project>/compose-stack.js, else used as-is. e.g. --deploy-id dd-cyberia --docker-compose-id cyberia for the Cyberia MMO ecosystem. |
+| `--env <env>` | Deployment environment of a non-default deploy id or a custom stack (default: development). |
 | `--generate` | Render dynamic supporting files (nginx router config, env-file, app-command override). |
 | `--up` | Start the full stack detached (regenerates config first). |
 | `--down` | Stop and remove containers (and orphans). |
@@ -1442,6 +1456,40 @@ Release orchestrator for building new versions and deploying releases of the Und
 | `--mongo-user <user>` | For --build: override DB_USER in the template .env.example for the smoke test. |
 | `--mongo-password <password>` | For --build: override DB_PASSWORD in the template .env.example for the smoke test. |
 | `--valkey-host <host>` | For --build: override VALKEY_HOST in the template .env.example for the smoke test (e.g., "192.168.1.82"). |
+| `-h, --help` | display help for command |
+
+---
+
+## underpost source-release
+
+Source channels, the Release Job and the release store.
+
+**Usage:** `underpost source-release [options] <operation> <subject>`
+
+### Arguments
+
+| Argument | Description |
+| --- | --- |
+| `operation` | repository: the repository of a source channel; job: run a Release Job; prune: remove the release workspaces of the store. |
+| `subject` | The public repository (repository), the release id (job), or the release to keep (prune). |
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--channel <channel>` | For repository: the source channel, public or private. (default: "public") |
+| `--deploy-id <deploy-id>` | For job: the deployment the release belongs to. |
+| `--image <image>` | For job: the container image the Job runs. |
+| `--cmd <command>` | For job: the shell command line the Job runs. |
+| `--env <env>` | For job: the deployment environment. (default: "production") |
+| `--scope <scope>` | For job: the configuration scope whose `app apply` Secret the Job reads, e.g. data-release. |
+| `--set-env <list>` | For job: plain environment values, as KEY=value,KEY=value. |
+| `--node-name <node-name>` | For job: pins the Job to the node that holds the release store. |
+| `--namespace <namespace>` | For job: the Kubernetes namespace. (default: "default") |
+| `--store <path>` | For job and prune: the release store path on the node. |
+| `--timeout <seconds>` | For job: the deadline of the Job, in seconds. (default: "3600") |
+| `--image-pull-policy <policy>` | For job: Always, IfNotPresent or Never. (default: "IfNotPresent") |
+| `--dry-run` | For job: print the Job manifest and run nothing. |
 | `-h, --help` | display help for command |
 
 ---

@@ -11,9 +11,10 @@
  * one is worth reading. Vitest expresses that with an ascending
  * `sequence.groupOrder`; nothing outside this table decides what runs when.
  *
- * This module is pure: it renders the runner configuration, the argument vector
- * and the manifests from values it is given. Resolving deploy configuration,
- * spawning the runner and talking to the cluster belong to `src/cli/test.js`.
+ * This module is pure: it renders the runner configuration, the execution plan,
+ * the argument vector and the manifests from values it is given. Resolving deploy
+ * configuration, spawning the runner and talking to the cluster belong to
+ * `src/cli/test.js`.
  *
  * @module src/server/build/testing.js
  * @namespace UnderpostTesting
@@ -39,6 +40,25 @@ const UNDERPOST_TESTING = {
   // Absent means a plain local run, so no result files are written at all.
   allureResultsEnvKey: 'UNDERPOST_ALLURE_RESULTS',
   allureResultsDirectory: 'allure-results',
+  // Read by vitest.config.js: the footprint every project of a child run applies.
+  footprintEnvKey: 'UNDERPOST_TEST_FOOTPRINT',
+  // Read by vitest.config.js: the blob file a batch writes its results and coverage to.
+  batchReportEnvKey: 'UNDERPOST_TEST_REPORT',
+  // Read by vitest.config.js: the JSON file a batch writes its test results to.
+  batchResultsEnvKey: 'UNDERPOST_TEST_RESULTS',
+  runs: {
+    directory: '.vitest/test-runs',
+    // Holds only blobs, because the merge reads every file in it.
+    reportDirectory: 'blobs',
+    // One JSON file of test results per batch: the failure report reads them.
+    resultsDirectory: 'results',
+    // The output of each batch process and of the merge.
+    logDirectory: 'logs',
+    // Runs on disk, the new run included. A run holds raw coverage, so keep few.
+    kept: 5,
+    // Time a batch gets to stop after SIGTERM, before SIGKILL.
+    terminationGraceMs: 10000,
+  },
   allure: {
     name: 'allure',
     image: 'frankescobar/allure-docker-service:2.27.0',
@@ -112,10 +132,11 @@ const TEST_LEVELS = Object.freeze({
  * `--suite cyberia` and `--suite underpost:integration` need no second table:
  * a selector matches a name exactly, or matches the segment prefix before `:`.
  *
- * `groupOrder` is what Vitest sequences on: equal values run in parallel, lower
- * values run to completion first. It starts at 1, never 0 — Vitest routes a
- * project left on the default 0 with a single worker into a bucket it appends
- * after every ordered group, which would run the first project last.
+ * `groupOrder` is what the batches and Vitest sequence on: lower values run to
+ * completion first. Equal values run in parallel only in the `ci` footprint. It
+ * starts at 1, never 0 — Vitest routes a project left on the default 0 with a
+ * single worker into a bucket it appends after every ordered group, which would
+ * run the first project last.
  *
  * `parallel` lets the files of one project run at the same time. A project whose
  * suites bind a port, drive a database, spawn a process or read the deploy tree
@@ -156,8 +177,13 @@ const TEST_PROJECTS = [
     sources: [
       'underpost.config.js',
       'src/cli/release.js',
+      'src/client-builder/build-manifest.js',
       'src/client-builder/client-build-docs.js',
+      'src/client/components/core/BuildManifest.js',
+      'src/client/components/core/ShellLayout.js',
+      'src/client/components/core/ShellNavigation.js',
       'src/projects/underpost/*.js',
+      'src/runtime/nginx/Nginx.js',
       'src/server/build/docs.js',
       'src/server/ops/logger.js',
       'src/server/runtime/conf.js',
@@ -173,7 +199,7 @@ const TEST_PROJECTS = [
     sources: [
       'src/api/object-layer/object-layer.identity.js',
       'src/api/object-layer/object-layer.model.js',
-      'src/client/components/object-layer/ObjectLayerProtocol.js',
+      'src/client/components/objectlayer-studio/ObjectLayerProtocol.js',
     ],
     description: 'Canonical identity, the definition lifecycle, render answers and the purge path.',
   },
@@ -198,18 +224,30 @@ const TEST_PROJECTS = [
     sources: [
       'src/api/atlas-sprite-sheet/atlas-sprite-sheet.generator.js',
       'src/api/cyberia-content-release/cyberia-content-release.model.js',
-      'src/api/cyberia-instance/cyberia-fallback-capture.js',
+      'src/projects/cyberia/procedural/context.js',
+      'src/projects/cyberia/procedural/core/*.js',
+      'src/projects/cyberia/procedural/generators/**/*.js',
+      'src/projects/cyberia/procedural/palettes/*.js',
+      'src/projects/cyberia/procedural/profiles/*.js',
       'src/api/cyberia-server-defaults/*.js',
-      'src/projects/cyberia/content-release.js',
-      'src/projects/cyberia/domain-ownership.js',
-      'src/projects/cyberia/instance-backup.js',
+      'src/projects/cyberia/compose-stack.js',
+      'src/projects/cyberia/content/content-artifact.js',
+      'src/projects/cyberia/content/content-release.js',
+      'src/projects/cyberia/stack/domain-ownership.js',
+      'src/projects/cyberia/instance/instance-backup.js',
       'src/projects/cyberia/instance-data.js',
-      'src/projects/cyberia/object-layer-catalog.js',
-      'src/projects/cyberia/server-key.js',
-      'src/projects/cyberia/shape-generator.js',
-      'src/projects/cyberia/stat-balance.js',
+      'src/projects/cyberia/stack/local-stack.js',
+      'src/projects/cyberia/instance/map-preview-generator.js',
+      'src/projects/cyberia/catalog/object-layer-catalog.js',
+      'src/projects/cyberia/content/release-content.js',
+      'src/projects/cyberia/runtime/server-key.js',
+      'src/projects/cyberia/object-layer/shape-generator.js',
+      'src/projects/cyberia/stats/stat-balance.js',
     ],
-    description: 'Cyberia content, instance data, releases, sprite atlases, stats and shape generation.',
+    description:
+      'Cyberia content artifact consumption, instance data, releases, sprite atlases, map previews, stats ' +
+      'and shape generation. The suites that run a world need a built cyberia-content artifact ' +
+      '(CYBERIA_CONTENT_ROOT or ./cyberia-content) and skip without one.',
   },
   {
     name: 'cryptokoyn:unit',
@@ -297,7 +335,7 @@ const TEST_PROJECTS = [
     // Non-recursive: the ordered areas underneath are projects of their own.
     recursive: false,
     sources: ['src/api/test/*.js'],
-    description: 'Platform APIs served over a real server and a real database.',
+    description: 'Platform APIs served over a real server and a real database, and the test runner on real processes.',
   },
   {
     name: 'ecosystem:integration',
@@ -313,17 +351,26 @@ const TEST_PROJECTS = [
     sources: [
       'src/api/object-layer/object-layer.publication.js',
       'src/db/DataBaseProvider.js',
-      'src/db/content-view.js',
-      'src/projects/cyberia/content-release.js',
+      'src/db/served-databases.js',
+      'src/projects/cyberia/content/content-artifact.js',
+      'src/projects/cyberia/content/content-release.js',
+      'src/projects/cyberia/procedural/engine.js',
+      'src/projects/cyberia/procedural/jobs/*.js',
+      'src/projects/cyberia/procedural/source.js',
+      'src/projects/cyberia/procedural/spec.js',
       'test/support/mongod.js',
     ],
     // Every content-release test does real database round trips: a release build copies ten collections.
     vitest: { hookTimeout: 60000, testTimeout: 30000 },
     description:
       'Cyberia against real boundaries: content releases on a MongoDB replica set — build, validate, ' +
-      'promote, roll back, prune, restart, concurrent promotion and runtime isolation — the product CLI ' +
-      'and the audio seed. The release suites need a mongod binary (UNDERPOST_MONGOD_BIN or PATH) and ' +
-      'skip without one.',
+      'promote, roll back, prune, restart, concurrent promotion, runtime isolation and one data source ' +
+      'for every role — the content ' +
+      'artifact materialization and saga import, the Procedural Engine — the two generation modes, jobs, the background worker, ' +
+      'leases, human review and promotion — the product CLI, the audio seed and the map preview ' +
+      'refresh. The database suites need a mongod binary (UNDERPOST_MONGOD_BIN or PATH), the content suites ' +
+      'a built cyberia-content artifact (CYBERIA_CONTENT_ROOT or ./cyberia-content); each skips without its ' +
+      'requirement.',
   },
   {
     name: 'item-ledger:integration',
@@ -378,6 +425,83 @@ const TEST_PROJECTS = [
       ].join(' && '),
   },
 ];
+
+/**
+ * @constant TEST_FOOTPRINTS
+ * @description How much of the machine one run can use.
+ *
+ * `batch` is the scheduler unit. `project` runs each selected project in its own fresh
+ * process. `selection` runs the whole selection in one process. Batches run one at a
+ * time. `vitest` limits each process. A footprint can stop file parallelism, but it
+ * never starts it for a project that sets `parallel` off.
+ *
+ * `budget` is the share of the host one batch can use. The runner stops a batch whose
+ * process tree holds more than `memoryShare` of the memory, or that leaves less than
+ * `reserveShare` of it available to the host. A batch runs at `nice` priority, and
+ * `cpuShare` of the CPUs sizes the thread pools of the tools it starts.
+ * @memberof UnderpostTesting
+ */
+const TEST_FOOTPRINTS = Object.freeze({
+  safe: {
+    description:
+      'One project per fresh process, one worker, one file and one test at a time, inside a host budget. The default.',
+    batch: 'project',
+    vitest: { pool: 'forks', maxWorkers: 1, fileParallelism: false, maxConcurrency: 1 },
+    budget: { memoryShare: 0.3, reserveShare: 0.05, cpuShare: 0.5, nice: 10 },
+  },
+  balanced: {
+    description:
+      'One project per fresh process, two workers, parallel files where the project permits, inside a host budget.',
+    batch: 'project',
+    vitest: { pool: 'forks', maxWorkers: 2, maxConcurrency: 2 },
+    budget: { memoryShare: 0.5, reserveShare: 0.03, cpuShare: 0.75, nice: 5 },
+  },
+  ci: {
+    description:
+      'The whole selection in one process, on the Vitest default workers. For a runner that owns its machine.',
+    batch: 'selection',
+    vitest: {},
+    budget: null,
+  },
+});
+
+/**
+ * @method testFootprintFactory
+ * @description Resolves a footprint by name. An empty name gives `safe`.
+ * @param {string} [name] - Footprint name.
+ * @returns {{name: string, description: string, batch: string, vitest: object}} The footprint.
+ * @throws {Error} When the name is not a declared footprint.
+ * @memberof UnderpostTesting
+ */
+const testFootprintFactory = (name = '') => {
+  const key = name || 'safe';
+  if (!Object.hasOwn(TEST_FOOTPRINTS, key))
+    throw new Error(`[test] unknown footprint '${key}' — expected one of ${Object.keys(TEST_FOOTPRINTS).join(', ')}`);
+  return { name: key, ...TEST_FOOTPRINTS[key] };
+};
+
+/**
+ * @method testBudgetFactory
+ * @description Resolves the budget of a footprint against one host.
+ * @param {object} params
+ * @param {string} [params.footprint] - Footprint name.
+ * @param {number} params.totalMemoryBytes - Memory of the host, or of its container limit.
+ * @param {number} params.cpus - CPUs the runner can use.
+ * @returns {{memoryBytes: number, reserveBytes: number, threads: number, nice: number}|null} The budget,
+ *   or null for a footprint without one.
+ * @throws {Error} When the footprint is unknown.
+ * @memberof UnderpostTesting
+ */
+const testBudgetFactory = ({ footprint = '', totalMemoryBytes, cpus }) => {
+  const { budget } = testFootprintFactory(footprint);
+  if (!budget) return null;
+  return {
+    memoryBytes: Math.floor(totalMemoryBytes * budget.memoryShare),
+    reserveBytes: Math.floor(totalMemoryBytes * budget.reserveShare),
+    threads: Math.max(1, Math.floor(cpus * budget.cpuShare)),
+    nice: budget.nice,
+  };
+};
 
 /**
  * @method testDomainNames
@@ -482,18 +606,20 @@ const resolveTestSelection = (selector = '', contexts = []) => {
  * than declared once at the root and silently dropped.
  * @param {object} [defaults] - Per-project `test` options shared by every project.
  * @param {Array<{stripPaths: string[], active: boolean}>} [contexts] - Product contexts.
+ * @param {{vitest: object}} [footprint] - Limits every project applies, from `testFootprintFactory`.
  * @returns {object[]} Vitest inline project configurations.
  * @memberof UnderpostTesting
  */
-const testProjectsFactory = (defaults = {}, contexts = []) =>
+const testProjectsFactory = (defaults = {}, contexts = [], footprint = { vitest: {} }) =>
   runnableTestProjects(contexts)
     .filter(({ delegate }) => !delegate)
     .map(({ name, directory, groupOrder, recursive = true, parallel = false, vitest = {} }) => ({
       test: {
         ...defaults,
         ...vitest,
+        ...footprint.vitest,
         name,
-        fileParallelism: parallel,
+        fileParallelism: parallel && footprint.vitest.fileParallelism !== false,
         include: [`${directory}/${recursive ? '**/' : ''}*.test.js`],
         sequence: { ...defaults.sequence, groupOrder },
       },
@@ -507,17 +633,396 @@ const testProjectsFactory = (defaults = {}, contexts = []) =>
  * @param {string} [params.grep] - Substring filter on test names.
  * @param {boolean} [params.watch] - Keep the runner open and re-run on change.
  * @param {boolean} [params.coverage] - Emit the coverage reporters.
+ * @param {{coverageDirectory: string, coverageInclude: string[]}} [params.batch] - Makes the run one
+ *   batch: it measures the selection's sources and leaves the reports to the merge.
+ * @param {string} [params.mergeReports] - Blob directory to merge instead of running tests.
+ * @param {boolean} [params.logHeapUsage] - Print the heap size after each test.
  * @returns {string[]} Arguments for the `vitest` binary.
  * @memberof UnderpostTesting
  */
-const vitestArgsFactory = ({ projects = [], grep = '', watch = false, coverage = true } = {}) => [
+const vitestArgsFactory = ({
+  projects = [],
+  grep = '',
+  watch = false,
+  coverage = true,
+  batch = null,
+  mergeReports = '',
+  logHeapUsage = false,
+} = {}) => [
   // Subcommands, not flags: `vitest run --watch` is contradictory and Vitest
   // resolves it to a single non-watching run.
   watch ? 'watch' : 'run',
+  ...(mergeReports ? [`--merge-reports=${mergeReports}`] : []),
   ...projects.flatMap((project) => ['--project', project]),
-  ...(grep ? ['--testNamePattern', grep] : []),
+  ...(grep && !mergeReports ? ['--testNamePattern', grep] : []),
   ...(coverage ? ['--coverage'] : ['--coverage.enabled=false']),
+  ...(batch
+    ? [
+        // A project with no files in this tree is a slice, not a failure. The merge still fails an empty run.
+        '--passWithNoTests',
+        ...(coverage
+          ? [
+              '--coverage.reporter=none',
+              `--coverage.reportsDirectory=${batch.coverageDirectory}`,
+              // The selection's scope, so a source another project loads counts as in a single run.
+              ...batch.coverageInclude.map((glob) => `--coverage.include=${glob}`),
+            ]
+          : []),
+      ]
+    : []),
+  ...(logHeapUsage ? ['--logHeapUsage'] : []),
 ];
+
+/**
+ * @constant COVERAGE_GATE_ENV_KEYS
+ * @description The environment keys `coverageThresholdFactory` reads.
+ * @memberof UnderpostTesting
+ */
+const COVERAGE_GATE_ENV_KEYS = ['COVERAGE_ENFORCE', 'COVERAGE_MIN'];
+
+/**
+ * @method vitestEnvFactory
+ * @description The environment of one Vitest process.
+ *
+ * A batch writes a blob and never carries the coverage gate: its coverage is partial.
+ * The merge and a watch run carry the gate. The runner keys come only from the arguments.
+ * @param {object} [params]
+ * @param {object} [params.env] - Environment to start from.
+ * @param {string} [params.footprint] - Footprint name.
+ * @param {string} [params.report] - Blob path. Set only for a batch.
+ * @param {string} [params.results] - JSON results path. Set only for a batch.
+ * @param {string} [params.allureResultsDirectory] - Allure results directory, or empty for none.
+ * @param {boolean} [params.diagnose] - Log the coverage timings.
+ * @returns {object} Environment for the child process.
+ * @memberof UnderpostTesting
+ */
+const vitestEnvFactory = ({
+  env = {},
+  footprint = '',
+  report = '',
+  results = '',
+  allureResultsDirectory = '',
+  diagnose = false,
+} = {}) => {
+  const { footprintEnvKey, batchReportEnvKey, batchResultsEnvKey, allureResultsEnvKey } = UNDERPOST_TESTING;
+  const dropped = new Set([
+    footprintEnvKey,
+    batchReportEnvKey,
+    batchResultsEnvKey,
+    allureResultsEnvKey,
+    ...(report ? COVERAGE_GATE_ENV_KEYS : []),
+  ]);
+  const owned = {
+    NODE_ENV: 'test',
+    [footprintEnvKey]: footprint,
+    [batchReportEnvKey]: report,
+    [batchResultsEnvKey]: results,
+    [allureResultsEnvKey]: allureResultsDirectory,
+    DEBUG: diagnose ? [env.DEBUG, 'vitest:coverage'].filter(Boolean).join(',') : env.DEBUG,
+  };
+  return {
+    ...Object.fromEntries(Object.entries(env).filter(([key]) => !dropped.has(key))),
+    ...Object.fromEntries(Object.entries(owned).filter(([, value]) => value)),
+  };
+};
+
+/**
+ * @method testExecutionPlanFactory
+ * @description Orders a selection into batches. Each batch runs in one fresh process.
+ * The batches run one at a time, in ascending `groupOrder`, so a lower group
+ * completes before a higher group starts.
+ * @param {object} [params]
+ * @param {string} [params.selector] - Domain names, project names, or empty for every project.
+ * @param {Array<{stripPaths: string[], active: boolean}>} [params.contexts] - Product contexts.
+ * @param {string} [params.footprint] - Footprint name.
+ * @returns {{footprint: string, projects: string[], coverageInclude: string[], batches: object[], excluded: object[]}}
+ *   The plan. `projects` are the merge's `--project` flags, empty for every project.
+ * @throws {Error} When the selector or the footprint is unknown.
+ * @memberof UnderpostTesting
+ */
+const testExecutionPlanFactory = ({ selector = '', contexts = [], footprint = '' } = {}) => {
+  const { name, batch } = testFootprintFactory(footprint);
+  const { projects, runVitest, delegated, excluded } = resolveTestSelection(selector, contexts);
+  const vitestProjects = !runVitest
+    ? []
+    : projects.length > 0
+      ? projects.map((project) => TEST_PROJECTS.find(({ name: declared }) => declared === project))
+      : runnableTestProjects(contexts).filter(({ delegate }) => !delegate);
+  const units =
+    batch === 'project' ? vitestProjects.map((project) => [project]) : vitestProjects.length ? [vitestProjects] : [];
+  const batches = [...units, ...delegated.map((project) => [project])]
+    .map((members) => ({
+      groupOrder: Math.min(...members.map(({ groupOrder }) => groupOrder)),
+      projects: members.map(({ name: member }) => member),
+      delegated: Boolean(members[0].delegate),
+    }))
+    .sort((a, b) => a.groupOrder - b.groupOrder)
+    .map(({ delegated: isDelegated, ...rest }, index) => {
+      const name = `batch-${String(index + 1).padStart(3, '0')}`;
+      const { reportDirectory, resultsDirectory, logDirectory } = UNDERPOST_TESTING.runs;
+      return {
+        index: index + 1,
+        ...rest,
+        ...(isDelegated
+          ? { delegated: true }
+          : { report: `${reportDirectory}/${name}.blob`, results: `${resultsDirectory}/${name}.json` }),
+        log: `${logDirectory}/${name}.log`,
+      };
+    });
+  return {
+    footprint: name,
+    projects,
+    coverageInclude: runVitest
+      ? coverageIncludeFactory(
+          projects.flatMap((project) => ['--project', project]),
+          contexts,
+        )
+      : [],
+    batches,
+    excluded: excluded.map(({ name: project, context }) => ({
+      name: project,
+      deployId: context.deployId,
+      missing: context.missing,
+    })),
+  };
+};
+
+/**
+ * @method testBatchStatus
+ * @description Names how one batch process ended.
+ *
+ * `failed`: tests failed and the batch wrote its report. `error`: the runner failed
+ * before it wrote a report, or the process did not start. `killed`: SIGKILL, often
+ * the kernel out-of-memory killer. `signaled`: another signal from outside.
+ * `over-budget`: the runner stopped the batch at its memory budget or host reserve.
+ * `timeout`: the batch ran past its limit. `interrupted`: the operator stopped the run.
+ * @param {object} [outcome]
+ * @param {number|null} [outcome.exitCode] - Exit code, or null when a signal ended the process.
+ * @param {string|null} [outcome.signal] - Signal that ended the process.
+ * @param {boolean} [outcome.timedOut] - The runner stopped the batch at its time limit.
+ * @param {string} [outcome.overBudget] - Why the runner stopped the batch at its budget.
+ * @param {boolean} [outcome.interrupted] - The operator stopped the run during the batch.
+ * @param {boolean} [outcome.reported] - The batch wrote its report.
+ * @returns {string} Status.
+ * @memberof UnderpostTesting
+ */
+const testBatchStatus = ({
+  exitCode = null,
+  signal = null,
+  timedOut = false,
+  overBudget = '',
+  interrupted = false,
+  reported = false,
+} = {}) => {
+  if (interrupted) return 'interrupted';
+  if (overBudget) return 'over-budget';
+  if (timedOut) return 'timeout';
+  if (signal === 'SIGKILL') return 'killed';
+  if (signal) return 'signaled';
+  if (exitCode === 0) return 'passed';
+  // No exit code and no signal: the process never started.
+  return reported && exitCode !== null ? 'failed' : 'error';
+};
+
+/**
+ * @method testRunStatus
+ * @description The status of a whole run. A run passes only when every batch passed
+ * or was skipped and the merge passed.
+ * @param {{batches: Array<{status: string}>, merge?: {status: string}}} manifest - Run manifest.
+ * @returns {'passed'|'failed'|'interrupted'} Status.
+ * @memberof UnderpostTesting
+ */
+const testRunStatus = ({ batches = [], merge } = {}) => {
+  if (batches.some(({ status }) => status === 'interrupted')) return 'interrupted';
+  const batchesPassed = batches.every(({ status }) => status === 'passed' || status === 'skipped');
+  return batchesPassed && (!merge || merge.status === 'passed') ? 'passed' : 'failed';
+};
+
+/**
+ * @method testRunReportFactory
+ * @description Renders a run manifest as a text table: one row per batch, then the merge.
+ * @param {{batches: object[], merge?: object}} manifest - Run manifest.
+ * @returns {string} Table.
+ * @memberof UnderpostTesting
+ */
+const testRunReportFactory = ({ batches = [], merge } = {}) => {
+  const seconds = (ms) => (Number.isFinite(ms) ? `${(ms / 1000).toFixed(1)}s` : '-');
+  const megabytes = (bytes) => (Number.isFinite(bytes) ? `${Math.round(bytes / 1024 / 1024)}MB` : '-');
+  const diagnosed = batches.some(({ diagnostics }) => diagnostics);
+  const row = ({ exitCode, signal, durationMs, diagnostics }) => [
+    `${exitCode ?? '-'}`,
+    signal ?? '-',
+    seconds(durationMs),
+    ...(diagnosed ? [megabytes(diagnostics?.peakRssBytes), seconds(diagnostics?.cpuMs)] : []),
+  ];
+  const rows = [
+    ['batch', 'projects', 'status', 'exit', 'signal', 'duration', ...(diagnosed ? ['peak rss', 'cpu'] : [])],
+    ...batches.map((batch) => [`${batch.index}`, batch.projects.join(','), batch.status, ...row(batch)]),
+    ...(merge ? [['merge', '', merge.status, ...row(merge)]] : []),
+  ];
+  const widths = rows[0].map((_, column) => Math.max(...rows.map((cells) => cells[column].length)));
+  return rows
+    .map((cells) =>
+      cells
+        .map((cell, column) => cell.padEnd(widths[column]))
+        .join('  ')
+        .trimEnd(),
+    )
+    .join('\n');
+};
+
+/** ANSI escape sequences, which a log file keeps and a report does not. */
+const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+
+const stripAnsi = (text = '') => `${text}`.replace(ANSI_PATTERN, '');
+
+/**
+ * @method testFailuresFactory
+ * @description Reads the failed tests out of the JSON results of one batch.
+ *
+ * A suite that failed to load has no test results; it is one failure of its own.
+ * @param {object} [results] - Vitest JSON report.
+ * @param {string} [root] - Engine tree. File paths are made relative to it.
+ * @returns {Array<{file: string, test: string, message: string}>} One entry per failed test or suite.
+ * @memberof UnderpostTesting
+ */
+const testFailuresFactory = (results = {}, root = '') => {
+  const prefix = root ? `${root.replace(/\/+$/, '')}/` : '';
+  // Frames inside dependencies and Node name the runner, not the failure.
+  const relative = (text) =>
+    stripAnsi(text)
+      .replaceAll(prefix, '')
+      .split('\n')
+      .filter((line) => !/^\s*at .*(node_modules\/|node:|<anonymous>)/.test(line))
+      .join('\n');
+  return (results.testResults ?? []).flatMap(({ name = '', status, message = '', assertionResults = [] }) => {
+    const file = relative(name);
+    const tests = assertionResults
+      .filter(({ status: result }) => result === 'failed')
+      .map(({ fullName = '', title = '', failureMessages = [] }) => ({
+        file,
+        test: fullName || title,
+        message: relative(failureMessages.join('\n')),
+      }));
+    if (tests.length > 0 || status !== 'failed') return tests;
+    return [{ file, test: '(the suite failed before a test ran)', message: relative(message) }];
+  });
+};
+
+/**
+ * @method testLogTail
+ * @description The last lines of a batch log, without colour codes.
+ * @param {string} [text] - Log content.
+ * @param {number} [lines] - Lines to keep.
+ * @returns {string} The lines, empty when the log is empty.
+ * @memberof UnderpostTesting
+ */
+const testLogTail = (text = '', lines = 30) => stripAnsi(text).trimEnd().split('\n').slice(-lines).join('\n');
+
+/** The first lines of a message, with a count of those left out. */
+const clipLines = (text, limit) => {
+  const lines = `${text}`.trim().split('\n');
+  return lines.length > limit ? [...lines.slice(0, limit), `... ${lines.length - limit} more lines`] : lines;
+};
+
+/**
+ * @method testRunFailureReportFactory
+ * @description Renders what went wrong in a run: each failed test with its error, and for every
+ * batch that ended without a report, the end of its log.
+ * @param {object} manifest - Run manifest.
+ * @param {Object<string, {failures?: object[], tail?: string, thresholdLines?: string[]}>} [evidence] - Evidence by
+ *   batch index, and `merge`.
+ * @returns {string} Report, empty when the run has nothing to explain.
+ * @memberof UnderpostTesting
+ */
+const testRunFailureReportFactory = ({ batches = [], merge } = {}, evidence = {}) => {
+  const passed = ({ status }) => status === 'passed' || status === 'skipped' || status === 'pending';
+  const failedTests = batches.flatMap((batch) =>
+    (evidence[batch.index]?.failures ?? []).map((failure) => ({ ...failure, project: batch.projects.join(',') })),
+  );
+  const sections = [];
+  if (failedTests.length > 0) {
+    const files = new Set(failedTests.map(({ file }) => file));
+    sections.push(`Failed tests: ${failedTests.length} in ${files.size} file(s)`);
+    failedTests.forEach(({ project, file, test, message }, position) =>
+      sections.push(
+        [
+          `${position + 1}) [${project}] ${file}`,
+          `   ${test}`,
+          ...clipLines(message, 14).map((line) => `   | ${line}`),
+        ].join('\n'),
+      ),
+    );
+  }
+  for (const batch of batches) {
+    if (passed(batch) || (batch.status === 'failed' && (evidence[batch.index]?.failures ?? []).length > 0)) continue;
+    const { tail = '' } = evidence[batch.index] ?? {};
+    sections.push(
+      [
+        `Batch ${batch.index} (${batch.projects.join(',')}) ${batch.status}${batch.reason ? ` (${batch.reason})` : ''}: ` +
+          `${tail ? 'end of' : 'no output in'} ${batch.log ?? 'its log'}`,
+        ...(tail ? tail.split('\n').map((line) => `   | ${line}`) : []),
+      ].join('\n'),
+    );
+  }
+  if (merge && !passed(merge)) {
+    const { tail = '', thresholdLines = [] } = evidence.merge ?? {};
+    const lines = failedTests.length > 0 ? thresholdLines : tail ? tail.split('\n') : [];
+    sections.push(
+      [
+        `Merge ${merge.status}${merge.reason ? ` (${merge.reason})` : ''}: ${failedTests.length > 0 ? 'it replays the failed tests above' : 'end of its log'}${merge.log ? `, ${merge.log}` : ''}`,
+        ...lines.map((line) => `   | ${line}`),
+      ].join('\n'),
+    );
+  }
+  return sections.join('\n\n');
+};
+
+/**
+ * @method githubAnnotationsFactory
+ * @description Renders failed tests as GitHub Actions workflow commands, so the run page lists them.
+ * @param {Array<{file: string, test: string, message: string}>} failures - Failed tests.
+ * @param {number} [limit] - Annotations to keep. GitHub shows ten per step.
+ * @returns {string[]} Workflow command lines.
+ * @memberof UnderpostTesting
+ */
+const githubAnnotationsFactory = (failures = [], limit = 10) => {
+  const data = (text) => `${text}`.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+  const property = (text) => data(text).replaceAll(':', '%3A').replaceAll(',', '%2C');
+  return failures
+    .slice(0, limit)
+    .map(
+      ({ file, test, message }) =>
+        `::error file=${property(file)},title=${property(test)}::${data(clipLines(message, 8).join('\n'))}`,
+    );
+};
+
+/** A run id: the UTC start time to the millisecond, then the runner's process id. */
+const TEST_RUN_ID = /^\d{8}T\d{6}\.\d{3}Z-\d+$/;
+
+/**
+ * @method testRunIdFactory
+ * @description A run id that sorts by start time.
+ * @param {Date} date - Start time.
+ * @param {number} pid - Runner process id.
+ * @returns {string} Run id.
+ * @memberof UnderpostTesting
+ */
+const testRunIdFactory = (date, pid) => `${date.toISOString().replace(/[-:]/g, '')}-${pid}`;
+
+/**
+ * @method staleTestRuns
+ * @description The runs to delete before a new run starts, so `kept` runs remain.
+ * Only names in the run id format are candidates.
+ * @param {string[]} [entries] - Names in the runs directory.
+ * @param {number} [kept] - Runs to keep, the new run included.
+ * @returns {string[]} Run ids to delete, oldest first.
+ * @memberof UnderpostTesting
+ */
+const staleTestRuns = (entries = [], kept = UNDERPOST_TESTING.runs.kept) => {
+  const runs = entries.filter((entry) => TEST_RUN_ID.test(entry)).sort();
+  return runs.slice(0, Math.max(0, runs.length - Math.max(0, kept - 1)));
+};
 
 /**
  * @method coverageThresholdFactory
@@ -791,7 +1296,7 @@ const TEST_IMPACT = [
   {
     match: [
       'src/api/object-layer/',
-      'src/client/components/object-layer/',
+      'src/client/components/objectlayer-studio/',
       'src/server/domain/object-layer-resolver.js',
     ],
     domains: ['object-layer', 'item-ledger', 'cyberia', 'cryptokoyn', 'ecosystem'],
@@ -831,6 +1336,8 @@ const TEST_IMPACT = [
   { match: ['src/client/components/', 'src/client/public/', 'src/client/ssr/'], domains: ['ecosystem', 'underpost'] },
   // Persistence every product domain stores through.
   { match: ['src/db/'], domains: ['underpost', 'object-layer', 'cyberia'] },
+  // The release primitive: Cyberia content releases run on it.
+  { match: ['src/server/release/'], domains: ['underpost', 'cyberia'] },
   // The engineering record at the tree root: the release tooling rewrites it and asserts it.
   { match: ['README.md', 'AGENTS.md', 'CLI-HELP.md', 'LICENSE'], domains: ['underpost'] },
   // The platform itself.
@@ -889,6 +1396,7 @@ const impactSelector = (paths = []) => {
 export {
   UNDERPOST_TESTING,
   TEST_DOMAINS,
+  TEST_FOOTPRINTS,
   TEST_IMPACT,
   TEST_LEVELS,
   TEST_PROJECTS,
@@ -902,9 +1410,22 @@ export {
   resolveTestProjects,
   resolveTestSelection,
   runnableTestProjects,
+  staleTestRuns,
+  testBatchStatus,
+  testBudgetFactory,
   testDomainNames,
+  testExecutionPlanFactory,
+  testFootprintFactory,
   testJobManifestFactory,
   testProjectsFactory,
+  testRunIdFactory,
+  testRunReportFactory,
+  testRunFailureReportFactory,
+  testFailuresFactory,
+  testLogTail,
+  githubAnnotationsFactory,
+  testRunStatus,
   vitestArgsFactory,
+  vitestEnvFactory,
   vitestProjectSelector,
 };
