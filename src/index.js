@@ -17,6 +17,7 @@ import UnderpostDockerCompose from './cli/docker-compose.js';
 import UnderpostEvent from './cli/event.js';
 import UnderpostKubectl from './cli/kubectl.js';
 import UnderpostFileStorage from './cli/fs.js';
+import UnderpostGraphify from './cli/graphify.js';
 import UnderpostIPFS from './cli/ipfs.js';
 import UnderpostImage from './cli/image.js';
 import UnderpostLxd from './cli/lxd.js';
@@ -25,6 +26,7 @@ import UnderpostPackage from './cli/package.js';
 import UnderpostRepository from './cli/repository.js';
 import UnderpostRun from './cli/run.js';
 import UnderpostSecret from './cli/secrets.js';
+import UnderpostSite from './cli/site.js';
 import UnderpostSocketSecurity from './cli/socketsecurity.js';
 import UnderpostSSH from './cli/ssh.js';
 import UnderpostState from './cli/state.js';
@@ -54,7 +56,7 @@ class Underpost {
    * @type {String}
    * @memberof Underpost
    */
-  static version = 'v3.5.0';
+  static version = 'v4.0.0';
 
   /**
    * Required Node.js major version
@@ -398,6 +400,16 @@ class Underpost {
   }
 
   /**
+   * Site provisioning cli API
+   * @static
+   * @type {UnderpostSite.API}
+   * @memberof Underpost
+   */
+  static get site() {
+    return UnderpostSite.API;
+  }
+
+  /**
    * Socket supply-chain security cli API
    * @static
    * @type {UnderpostSocketSecurity.API}
@@ -405,6 +417,16 @@ class Underpost {
    */
   static get socketSecurity() {
     return UnderpostSocketSecurity.API;
+  }
+
+  /**
+   * Graphify code graph cli API
+   * @static
+   * @type {UnderpostGraphify.API}
+   * @memberof Underpost
+   */
+  static get graphify() {
+    return UnderpostGraphify.API;
   }
 }
 
@@ -430,6 +452,7 @@ export {
   UnderpostEvent,
   UnderpostKubectl,
   UnderpostFileStorage,
+  UnderpostGraphify,
   UnderpostImage,
   UnderpostStatic,
   UnderpostTest,

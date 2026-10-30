@@ -137,20 +137,32 @@ node bin new --deploy-id dd-my-app --build
 node bin new --deploy-id dd-my-app --purge
 ```
 
-| Option                    | Description                                                                                                                 |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `--deploy-id <id>`        | Create deployment ID configuration and env files (format: `dd-<conf-id>`)                                                   |
-| `--cluster`               | Create cluster files and sync (requires `--deploy-id`)                                                                      |
-| `--sub-conf <type>`       | Create sub-configuration files (`client`, `server`)                                                                         |
-| `--build`                 | Build deployment to pwa-microservices-template                                                                              |
-| `--build-repos`           | Create deployment ID repositories (`engine-<conf-id>`, `engine-<conf-id>-private`)                                          |
-| `--clean-template`        | Clean the build directory                                                                                                   |
-| `--sync-conf`             | Sync configuration to private repositories                                                                                  |
-| `--sync-start`            | Sync start scripts in deploy ID `package.json` with root `package.json` (use `dd` as `--deploy-id` to sync all `dd.routes`) |
-| `--purge`                 | Remove deploy ID and all related files                                                                                      |
-| `--dev`                   | Development CLI context                                                                                                     |
-| `--default-conf`          | Create default deploy ID configuration                                                                                      |
-| `--conf-workflow-id <id>` | Custom configuration workflow ID                                                                                            |
+| Option                    | Description                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| `--deploy-id <id>`        | Create deployment ID configuration and env files (format: `dd-<conf-id>`)          |
+| `--cluster`               | Create cluster files and sync (requires `--deploy-id`)                             |
+| `--sub-conf <type>`       | Create sub-configuration files (`client`, `server`)                                |
+| `--build`                 | Build deployment to pwa-microservices-template                                     |
+| `--build-repos`           | Create deployment ID repositories (`engine-<conf-id>`, `engine-<conf-id>-private`) |
+| `--clean-template`        | Clean the build directory                                                          |
+| `--sync-conf`             | Sync configuration to private repositories                                         |
+| `--purge`                 | Remove deploy ID and all related files                                             |
+| `--dev`                   | Development CLI context                                                            |
+| `--default-conf`          | Create default deploy ID configuration                                             |
+| `--conf-workflow-id <id>` | Custom configuration workflow ID                                                   |
+
+The `package.json` of a deploy ID comes from `node bin package --sync`, which merges the engine manifest with the product catalog of the deploy ID.
+
+### API and WebSocket scaffolding
+
+```bash
+node bin new api order --deploy-id dd-my-app --client my-app
+node bin new ws chat --deploy-id dd-my-app --host www.my-app.com --paths /,/admin
+```
+
+`new api <api-id>` generates `src/api/<api-id>` and its client service from the `default` template API (`--from` selects another). With `--deploy-id`, it registers the API as `node bin site add-api` does.
+
+`new ws <ws-id>` generates `src/ws/<ws-id>` from the `default` template server and keeps files that already exist. With `--deploy-id` and `--host`, it binds the server to the `--paths` routes of `conf.server.json`. A missing route stops the command before it writes a file.
 
 When `--deploy-id dd-my-app` is used with `--cluster`, the engine creates:
 
@@ -906,7 +918,7 @@ node bin run sync --deploy-id dd --dev --kind --create-job-now
 node bin run sync --deploy-id dd-my-app --dev --kind --deploy-id-cron-jobs dd-cron
 node bin run sync --deploy-id dd-my-app --k3s --namespace production
 node bin run sync --deploy-id dd-core --kubeadm --image-pull-policy Always
-node bin run sync --deploy-id dd-lampp --replicas 2 --image underpost/wp:v3.5.0 --kubeadm
+node bin run sync --deploy-id dd-lampp --replicas 2 --image underpost/wp:v4.0.0 --kubeadm
 ```
 
 On a **first bring-up**, before `sync` applies the target colour's `deployment.yaml`, it enforces the same no-backend checkpoint as `run cluster`: it builds (or reuses, with `--skip-full-build`) configured SSR assets, syncs them into `underpost-gateway`, applies only the target-colour Gateway/HTTPRoute configuration, and requests every `maintenanceDefault` fallback. Each response must preserve a 502/503/504 status and exactly match the configured document. Only then does sync execute its existing `--disable-update-proxy` workload apply, readiness monitor and final traffic reconciliation.
