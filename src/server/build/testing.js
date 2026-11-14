@@ -20,6 +20,7 @@
  * @namespace UnderpostTesting
  */
 import { resourceBudgetFactory } from '../runtime/resource-governor.js';
+import { EXECUTION_TARGET_ENV_KEY, VERIFIED_TARGET_ENV_KEY } from './execution.js';
 
 /**
  * @constant UNDERPOST_TESTING
@@ -146,8 +147,8 @@ const TEST_LEVELS = Object.freeze({
  * project, after the Vitest run — so a delegated project belongs in the last
  * group, where the order it is declared in still matches the order it runs in.
  *
- * A project whose directory a product catalog strips from the base template
- * belongs to that product, and runs only in that product's context: see
+ * A project whose directory a product catalog lists in `templatePaths` belongs
+ * to that product, and runs only in that product's context: see
  * `runnableTestProjects`.
  *
  * `sources` are the modules the project's suites drive directly, and they are
@@ -176,7 +177,10 @@ const TEST_PROJECTS = [
     parallel: true,
     sources: [
       'underpost.config.js',
+      'underpost.cluster.config.js',
+      'src/api/file/file.ref.js',
       'src/api/user/guest.service.js',
+      'src/cli/github.js',
       'src/cli/maas-database.js',
       'src/cli/release.js',
       'src/cli/site.js',
@@ -191,12 +195,18 @@ const TEST_PROJECTS = [
       'src/client/components/core/ShellLayout.js',
       'src/client/components/core/ShellNavigation.js',
       'src/projects/underpost/*.js',
-      'src/runtime/nginx/Nginx.js',
+      'src/runtime/nginx/nginx.js',
       'src/server/build/docs.js',
       'src/server/build/publication.js',
+      'src/server/domain/api-assets.js',
       'src/server/domain/api-document.js',
+      'src/server/domain/api-module.js',
+      'src/server/github/*.js',
+      'src/server/network/path-routes.js',
       'src/server/ops/logger.js',
       'src/server/ops/metrics.js',
+      'src/server/release/change-summary.js',
+      'src/server/release/commit-message.js',
       'src/server/runtime/conf.js',
       'src/server/runtime/resource-governor.js',
       'src/server/runtime/retry.js',
@@ -249,9 +259,11 @@ const TEST_PROJECTS = [
       'src/api/cyberia-server-defaults/*.js',
       'src/projects/cyberia/compose-stack.js',
       'src/projects/cyberia/content/content-artifact.js',
+      'src/projects/cyberia/content/content-lifecycle.js',
       'src/projects/cyberia/content/content-release.js',
       'src/projects/cyberia/stack/domain-ownership.js',
       'src/projects/cyberia/instance/instance-backup.js',
+      'src/projects/cyberia/instance/public-worlds.js',
       'src/projects/cyberia/instance-data.js',
       'src/projects/cyberia/stack/local-stack.js',
       'src/projects/cyberia/stack/debug-stack.js',
@@ -323,7 +335,7 @@ const TEST_PROJECTS = [
     name: 'underpost:integration:cluster',
     directory: 'test/underpost/integration/cluster',
     groupOrder: 6,
-    sources: ['src/cli/docker-compose.js', 'src/db/mongo/MongoExpress.js', 'src/server/runtime/conf.js'],
+    sources: ['src/cli/docker-compose.js', 'src/db/mongo/mongo-express.js', 'src/server/runtime/conf.js'],
     description: 'Instance clustering, node assignment and compute scheduling.',
   },
   {
@@ -364,7 +376,12 @@ const TEST_PROJECTS = [
       'src/api/test/*.js',
       'src/api/user/*.js',
       'src/cli/graphify.js',
+      'src/cli/sandbox.js',
       'src/client-builder/client-bundle.js',
+      'src/db/data-operations.js',
+      'src/db/mongo/mongo-collection-operations.js',
+      'src/server/git/git.js',
+      'src/server/release/change-summary.js',
       'src/server/release/graphify.js',
       'src/server/release/release-tasks.js',
       'src/server/runtime/host-lock.js',
@@ -390,12 +407,16 @@ const TEST_PROJECTS = [
     groupOrder: 9,
     sources: [
       'src/api/cyberia-action/cyberia-action.service.js',
+      'src/api/cyberia-content-lifecycle/cyberia-content-lifecycle.model.js',
+      'src/api/cyberia-content-lifecycle-event/cyberia-content-lifecycle-event.model.js',
       'src/api/cyberia-game-session/cyberia-game-session.model.js',
       'src/api/cyberia-game-ticket/cyberia-game-ticket.model.js',
       'src/api/cyberia-game-ticket/cyberia-game-ticket.service.js',
       'src/api/cyberia-player/*.js',
       'src/api/cyberia-player-audit/*.js',
+      'src/api/cyberia-quest/cyberia-quest.service.js',
       'src/api/cyberia-quest-progress/cyberia-quest-progress.model.js',
+      'src/api/cyberia-saga-workflow/*.js',
       'src/api/cyberia-server-registry/*.js',
       'src/api/cyberia-social-profile/*.js',
       'src/api/cyberia-social/*.js',
@@ -406,10 +427,14 @@ const TEST_PROJECTS = [
       'src/api/cyberia-world-drop/cyberia-world-drop.model.js',
       'src/api/google-auth/*.js',
       'src/api/object-layer/object-layer.publication.js',
-      'src/db/DataBaseProvider.js',
+      'src/db/database-provider.js',
       'src/db/served-databases.js',
       'src/grpc/cyberia/grpc-server.js',
       'src/projects/cyberia/content/content-artifact.js',
+      'src/projects/cyberia/content/content-lifecycle.js',
+      'src/projects/cyberia/content/content-lifecycle-share.js',
+      'src/projects/cyberia/content/content-lifecycle-stages.js',
+      'src/projects/cyberia/content/content-lifecycle-target.js',
       'src/projects/cyberia/content/content-release.js',
       'src/projects/cyberia/economy/market-profile.js',
       'src/projects/cyberia/economy/terminal-diagnostics.js',
@@ -419,6 +444,7 @@ const TEST_PROJECTS = [
       'src/projects/cyberia/procedural/source.js',
       'src/projects/cyberia/procedural/spec.js',
       'src/projects/cyberia/runtime/runtime-indexes.js',
+      'src/projects/cyberia/saga/*.js',
       'test/support/mongod.js',
       'test/support/player-sessions.js',
       'test/support/valkey-memory.js',
@@ -429,7 +455,10 @@ const TEST_PROJECTS = [
       'Cyberia against real boundaries: content releases on a MongoDB replica set — build, validate, ' +
       'promote, roll back, prune, restart, concurrent promotion, runtime isolation and one data source ' +
       'for every role — the content ' +
-      'artifact materialization and saga import, the Procedural Engine — the two generation modes, jobs, the background worker, ' +
+      'artifact materialization and saga import, content lifecycles across nodes — the journal, the stage verifiers ' +
+      'and the CLI — the Saga Engine — saga workflows, durable generations under a lease, ' +
+      'candidate checks and application, the completeness report of sagas that share maps and items, and the ' +
+      'revision-safe synchronization of providers — the Procedural Engine — the two generation modes, jobs, the background worker, ' +
       'leases, human review and promotion, map populations, their working graph and background publication — accounts, launch tickets, gameplay leases and their handover, universe ' +
       'profiles across worlds, Google sign-in, player state commits, the runtime index sync, the operator view of ' +
       'profiles and sessions, friendships and status notes over the player gRPC service, market profiles, ' +
@@ -447,7 +476,8 @@ const TEST_PROJECTS = [
     sources: ['src/api/item-ledger/item-ledger.indexer.js'],
     description:
       'ItemLedger against a live EVM: deploy, register, mint, transfer, burn, replay and reconcile. ' +
-      'Needs CHAIN_RPC_URL and CHAIN_PRIVATE_KEY of a Besu validator or a Hardhat node; skipped without them.',
+      'Needs CHAIN_RPC_URL and CHAIN_PRIVATE_KEY of a Besu validator or a Hardhat node, and the compiled ' +
+      'contract of the cyberia-hardhat checkout; skipped without them.',
   },
   {
     name: 'underpost:e2e',
@@ -470,7 +500,7 @@ const TEST_PROJECTS = [
   },
   {
     name: 'item-ledger:contract',
-    directory: 'hardhat',
+    directory: 'cyberia-hardhat',
     groupOrder: 11,
     description: 'ObjectLayerToken ERC-1155 behaviour on the in-process EVM.',
     // Hardhat owns Solidity compilation and the EVM these run against, so they
@@ -608,20 +638,20 @@ const resolveTestProjects = (selector = '') => {
 /**
  * @method productContextOf
  * @description The product context a project runs in: a product owns the projects whose
- * directory its catalog strips from the base template.
+ * directory its catalog lists in `templatePaths`.
  * @param {{directory: string}} project - A declared project.
- * @param {Array<{stripPaths: string[]}>} [contexts] - Product contexts, as `loadProductContexts` resolves them.
+ * @param {Array<{templatePaths: string[]}>} [contexts] - Product contexts, as `loadProductContexts` resolves them.
  * @returns {object|null} The owning context, or `null` for a platform project.
  * @memberof UnderpostTesting
  */
 const productContextOf = ({ directory }, contexts = []) =>
-  contexts.find(({ stripPaths }) => stripPaths.some((path) => `./${directory}/`.startsWith(`${path}/`))) ?? null;
+  contexts.find(({ templatePaths }) => templatePaths.some((path) => `/${directory}/`.startsWith(`${path}/`))) ?? null;
 
 /**
  * @method runnableTestProjects
  * @description The projects this checkout runs: a project a product owns runs only where that
  * product's context is active.
- * @param {Array<{stripPaths: string[], active: boolean}>} [contexts] - Product contexts.
+ * @param {Array<{templatePaths: string[], active: boolean}>} [contexts] - Product contexts.
  * @returns {object[]} Runnable projects, in declaration order.
  * @memberof UnderpostTesting
  */
@@ -633,7 +663,7 @@ const runnableTestProjects = (contexts = []) =>
  * @description Splits a selector into the two runners that serve it, and the projects this
  * checkout leaves to their product's context.
  * @param {string} [selector] - Domain names, project names, or empty for every project.
- * @param {Array<{stripPaths: string[], active: boolean}>} [contexts] - Product contexts.
+ * @param {Array<{templatePaths: string[], active: boolean}>} [contexts] - Product contexts.
  * @returns {{projects: string[], runVitest: boolean, delegated: object[], excluded: Array<{name: string, context: object}>}} Selection.
  * @throws {Error} When a selector matches no declared project.
  * @memberof UnderpostTesting
@@ -664,7 +694,7 @@ const resolveTestSelection = (selector = '', contexts = []) => {
  * root `test` block, so whatever every project needs is spread in here rather
  * than declared once at the root and silently dropped.
  * @param {object} [defaults] - Per-project `test` options shared by every project.
- * @param {Array<{stripPaths: string[], active: boolean}>} [contexts] - Product contexts.
+ * @param {Array<{templatePaths: string[], active: boolean}>} [contexts] - Product contexts.
  * @param {{vitest: object}} [footprint] - Limits every project applies, from `testFootprintFactory`.
  * @returns {object[]} Vitest inline project configurations.
  * @memberof UnderpostTesting
@@ -744,7 +774,8 @@ const COVERAGE_GATE_ENV_KEYS = ['COVERAGE_ENFORCE', 'COVERAGE_MIN'];
  * @description The environment of one Vitest process.
  *
  * A batch writes a blob and never carries the coverage gate: its coverage is partial.
- * The merge and a watch run carry the gate. The runner keys come only from the arguments.
+ * The merge and a watch run carry the gate. The runner keys come only from the arguments. The cluster
+ * target of the CLI does not reach a test: each test sets the cluster it reaches.
  * @param {object} [params]
  * @param {object} [params.env] - Environment to start from.
  * @param {string} [params.footprint] - Footprint name.
@@ -765,6 +796,8 @@ const vitestEnvFactory = ({
 } = {}) => {
   const { footprintEnvKey, batchReportEnvKey, batchResultsEnvKey, allureResultsEnvKey } = UNDERPOST_TESTING;
   const dropped = new Set([
+    EXECUTION_TARGET_ENV_KEY,
+    VERIFIED_TARGET_ENV_KEY,
     footprintEnvKey,
     batchReportEnvKey,
     batchResultsEnvKey,
@@ -792,7 +825,7 @@ const vitestEnvFactory = ({
  * completes before a higher group starts.
  * @param {object} [params]
  * @param {string} [params.selector] - Domain names, project names, or empty for every project.
- * @param {Array<{stripPaths: string[], active: boolean}>} [params.contexts] - Product contexts.
+ * @param {Array<{templatePaths: string[], active: boolean}>} [params.contexts] - Product contexts.
  * @param {string} [params.footprint] - Footprint name.
  * @returns {{footprint: string, projects: string[], coverageInclude: string[], batches: object[], excluded: object[]}}
  *   The plan. `projects` are the merge's `--project` flags, empty for every project.
@@ -1130,7 +1163,7 @@ const coverageWatermarksFactory = (threshold = null) => {
  * is loaded by the Vitest process the arguments were handed to — a `--project` the
  * caller added by hand is as authoritative as one `vitestArgsFactory` rendered.
  * @param {string[]} [argv] - Argument vector carrying the `--project` selection.
- * @param {Array<{stripPaths: string[], active: boolean}>} [contexts] - Product contexts.
+ * @param {Array<{templatePaths: string[], active: boolean}>} [contexts] - Product contexts.
  * @returns {string[]} Globs for `coverage.include`, every selected runnable tier's sources.
  * @throws {Error} When a selected project matches no declared tier.
  * @memberof UnderpostTesting
@@ -1374,7 +1407,7 @@ const TEST_IMPACT = [
     ],
     domains: ['object-layer', 'item-ledger', 'cyberia', 'cryptokoyn', 'ecosystem'],
   },
-  { match: ['src/api/item-ledger', 'hardhat/'], domains: ['item-ledger'] },
+  { match: ['src/api/item-ledger'], domains: ['item-ledger'] },
   // The render routes every Object Layer host serves; the Cyberia Studio extends them.
   { match: ['src/api/atlas-sprite-sheet/'], domains: ['object-layer', 'cyberia', 'ecosystem'] },
   {
@@ -1417,6 +1450,7 @@ const TEST_IMPACT = [
   {
     match: [
       'underpost.config.js',
+      'underpost.cluster.config.js',
       'src/api/',
       'src/cli/',
       'src/client-builder/',

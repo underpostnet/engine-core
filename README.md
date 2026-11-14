@@ -107,6 +107,8 @@ npm run dev
 | --- | --- |
 | `-V, --version` | output the version number |
 | `--profile <profile>` | Execution profile. One of: LIVE_CLUSTER, HERMETIC_BUILD, OFFLINE_DRY_RUN. LIVE_CLUSTER Full access: cluster and host mutation permitted. HERMETIC_BUILD Build outputs only: no cluster, host or network side effects. OFFLINE_DRY_RUN Nothing executes; every command is reported as intent. |
+| `--context <context>` | The kubeconfig context this command and each command it starts reach, instead of environments.<env>.context of conf.cluster.json. No kubeconfig changes. |
+| `--current-context` | Reach the current kubeconfig context when conf.cluster.json names no context for the environment. The first change verifies the cluster against environments.<env>.cluster and prints it. |
 | `-h, --help` | display help for command |
 
 ### Commands
@@ -117,10 +119,17 @@ npm run dev
 | [`site`](CLI-HELP.md#underpost-site) | Provisions sites in the configuration of a deployment: clients, host/path routes, and the existing APIs and components they use. Each operation prints its change plan and applies it as one change set. |
 | [`client`](CLI-HELP.md#underpost-client) | Builds client assets, single replicas, and/or syncs environment ports. |
 | [`start`](CLI-HELP.md#underpost-start) | Initiates application servers, build pipelines, or other defined services based on the deployment ID. |
-| [`clone`](CLI-HELP.md#underpost-clone) | Clones a specified GitHub repository into the current directory. |
-| [`pull`](CLI-HELP.md#underpost-pull) | Pulls the latest changes from a specified GitHub repository. |
-| [`cmt`](CLI-HELP.md#underpost-cmt) | Manages commits to a GitHub repository, supporting various commit types and options. |
-| [`push`](CLI-HELP.md#underpost-push) | Pushes committed changes from a local repository to a remote GitHub repository. |
+| [`clone`](CLI-HELP.md#underpost-clone) | Clones a repository into a directory that does not exist or is empty. |
+| [`fetch`](CLI-HELP.md#underpost-fetch) | Updates the remote-tracking refs of a repository; the working tree and the branches stay. |
+| [`pull`](CLI-HELP.md#underpost-pull) | Fast-forwards the current branch to a remote branch. Never merges, rebases or replaces: a diverged history fails and nothing changes. |
+| [`push`](CLI-HELP.md#underpost-push) | Publishes HEAD to a branch of a remote and logs the published commit. |
+| [`sync`](CLI-HELP.md#underpost-sync) | Replaces a managed checkout with the tip of a repository branch: origin is repointed, local commits of the branch, tracked changes and untracked files are discarded, ignored files stay. For deploy checkouts, never for working repositories. |
+| [`discard`](CLI-HELP.md#underpost-discard) | Lists the staged, unstaged and untracked changes under each path, with its repository root, and with --force discards them. |
+| [`init`](CLI-HELP.md#underpost-init) | Initializes a repository, or keeps the one there, with the commit identity of GITHUB_USERNAME and GITHUB_EMAIL. |
+| [`status`](CLI-HELP.md#underpost-status) | Reads the state of a repository; nothing changes. One query per call; the short status without one. |
+| [`cmt`](CLI-HELP.md#underpost-cmt) | Commits the staged changes with a Conventional Commit message: type(scope): description. |
+| [`merge-dependabot`](CLI-HELP.md#underpost-merge-dependabot) | Fetches origin and merges each origin/dependabot/* branch into the base branch, one at a time, and prints ok or failed for each. Local changes are stashed and come back, with the branch you were on; nothing is pushed. |
+| [`github`](CLI-HELP.md#underpost-github) | GitHub automation: workflows and repository metadata. |
 | [`static`](CLI-HELP.md#underpost-static) | Manages static build of page, bundles, and documentation with comprehensive customization options. |
 | [`root`](CLI-HELP.md#underpost-root) | Displays the root path of the npm installation. |
 | [`ip`](CLI-HELP.md#underpost-ip) | Displays the current public machine IP addresses. |
@@ -132,7 +141,7 @@ npm run dev
 | [`state`](CLI-HELP.md#underpost-state) | Runtime state: live container execution state, health and metrics, exported off-cluster. |
 | [`image`](CLI-HELP.md#underpost-image) | Manages Docker images, including building, saving, and loading into Kubernetes clusters. |
 | [`install`](CLI-HELP.md#underpost-install) | Quickly imports Underpost npm dependencies by copying them. |
-| [`db`](CLI-HELP.md#underpost-db) | Manages MariaDB and MongoDB databases: sealed backups in the object store, restores, verification and restore drills, retention, and statistics. |
+| [`db`](CLI-HELP.md#underpost-db) | Manages MariaDB and MongoDB databases: sealed backups in the object store, restores, verification and restore drills, retention, statistics, and collection operations. |
 | [`metadata`](CLI-HELP.md#underpost-metadata) | Manages cluster metadata operations, including import and export. |
 | [`cron`](CLI-HELP.md#underpost-cron) | Manages cron jobs: execute jobs directly or generate and apply K8s CronJob manifests. |
 | [`fs`](CLI-HELP.md#underpost-fs) | Uploads, pulls, or deletes Cloudinary assets and synchronizes the selected storage manifest. |
@@ -142,6 +151,10 @@ npm run dev
 | [`wireguard`](CLI-HELP.md#underpost-wireguard) | Manages the WireGuard L3 hub-and-spoke transport and the HAProxy edge gateway in front of it. |
 | [`haproxy`](CLI-HELP.md#underpost-haproxy) | Manages the HAProxy edge gateway over the WireGuard transport (same subsystem as `underpost wireguard`). |
 | [`vultr`](CLI-HELP.md#underpost-vultr) | Meters the edge VPS bandwidth against its Vultr plan quota and blocks egress before overage accrues. |
+| [`sandbox`](CLI-HELP.md#underpost-sandbox) | The Development Sandbox: a local Kind cluster with MongoDB and Valkey, exposed on 127.0.0.1. It never resets a cluster, a database or a volume, and never stops a process it did not start. |
+| [`namespace`](CLI-HELP.md#underpost-namespace) | Kubernetes placement from engine-private/deploy/conf.cluster.json: the context, the DNS domain and the namespace of each resource, the live cluster against it, and its migration. Capture is not a backup. Only migrate moves a resource: it deletes the source installation, installs it again in its destination and restarts its consumers, one unit at a time; until a unit is ready in its destination every command reaches its source. Nothing here deletes a namespace or rewrites an environment file. |
+| [`tls`](CLI-HELP.md#underpost-tls) | TLS lifecycle: the ACME ClusterIssuer, the cert-manager Certificates, the TLS Secrets and self-signed TLS of the hosts the deployments declare. environments.<env>.tls of conf.cluster.json sets the mode. It never deletes a Certificate or a TLS Secret to renew it, and never changes a workload. |
+| [`ingress`](CLI-HELP.md#underpost-ingress) | Routing: which deployment declares each host, the Gateway or HTTPProxy that serves it, and the routing objects a deployment leaves where it no longer runs. It never removes a shared object or one it cannot prove it owns. |
 | [`run`](CLI-HELP.md#underpost-run) | Runs specified scripts using various runners. |
 | [`test`](CLI-HELP.md#underpost-test) | Runs the test projects locally, inside deployment pods, or as a cluster Job with Allure reporting. |
 | [`docker-compose`](CLI-HELP.md#underpost-docker-compose) | General-purpose Docker Compose development pipeline (mirrors the Kubernetes dev stack). |

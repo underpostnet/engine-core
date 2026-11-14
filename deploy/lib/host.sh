@@ -94,6 +94,45 @@ source_repository() {
     sudo -n -- /bin/bash -lc "cd ${3:-$ENGINE_ROOT} && node bin source-release repository $1 --channel $2" | tail -n 1
 }
 
+# The placement of ${DEPLOY_ENV:-production} from engine-private/deploy/conf.cluster.json, read once
+# from the CLI resolver: UNDERPOST_KUBECONFIG pins its context, UNDERPOST_NAMESPACE_<RESOURCE> names
+# the namespace of each resource, for ${DEPLOY_ID} when the script sets it, so a migration that moves
+# that deployment alone places it, and UNDERPOST_NODES_<CATEGORY> the nodes of its node group, separated by spaces.
+# Call it in the shell that reads the variables, never inside a
+# deploy_step. Needs the engine installed, so it runs after prepare_host.
+#
+# Usage: cluster_placement
+cluster_placement() {
+    local placement
+
+    [ -n "${UNDERPOST_NAMESPACE_WORKLOADS:-}" ] && return 0
+    placement="$(sudo -n -- /bin/bash -lc "cd $ENGINE_ROOT && node bin namespace env --env ${DEPLOY_ENV:-production}${DEPLOY_ID:+ --deploy-id $DEPLOY_ID}" | tail -n 1)" || return 1
+    case "$placement" in
+        UNDERPOST_KUBECONFIG=*) eval "$placement" ;;
+        *) echo "The CLI printed no placement: $placement" >&2; return 1 ;;
+    esac
+}
+
+# kubectl in the context of ${DEPLOY_ENV:-production}. `sudo` drops the environment, so the context
+# pin is passed to it.
+#
+# Usage: cluster_kubectl <kubectl args...>
+cluster_kubectl() {
+    cluster_placement
+    sudo -n -- env KUBECONFIG="$UNDERPOST_KUBECONFIG" kubectl "$@"
+}
+
+# Waits until one node of a space-separated list is Ready: the pods of a node group need one.
+#
+# Usage: cluster_wait_any_node "<node> <node>..."
+cluster_wait_any_node() {
+    local node
+    for node in $1; do
+        cluster_kubectl wait --for=condition=Ready "node/${node}" --timeout=2m && return 0
+    done
+    return 1
+}
+
 # Installs the node's dependencies from the deploy's own package manifest and links the checkout's
 # CLI globally. Every later bare `underpost` command must execute this checkout, never a package
 # left behind by an older image or host preparation.
@@ -154,25 +193,23 @@ prepare_host() {
         sudo -n -- /bin/bash -lc "cd $engine_root && node bin host load"
 }
 
-# Brings a sibling checkout under the engine root to the tip of its repository, whatever state it is
-# in: a clone when `<engine-root>/<dir>` is not a git repository yet, and otherwise
-# `cmt --switch-repo`, which repoints `origin` and force-pulls the remote's default branch over the
-# working tree. Replaced rather than reconciled for the same reason `run pull` replaces the engine
-# itself: the checkout is a projection of its remote, never a place work is authored.
+# Brings a sibling checkout under the engine root to the tip of its repository's default branch,
+# whatever state it is in: `underpost sync` clones it when `<engine-root>/<dir>` holds no checkout,
+# and otherwise repoints `origin` and replaces the working tree. Replaced rather than reconciled for
+# the same reason `run pull` replaces the engine itself: the checkout is a projection of its remote,
+# never a place work is authored. It runs after `prepare_host`, with the CLI that step installed.
 #
 # `dir` defaults to the repository name, so a private mirror lands where `bin/cyberia` reads its
-# public repository. The check runs inside the same sudo shell as the clone or switch.
+# public repository.
 #
 # Usage: sync_checkout <owner/repo> [engine-root] [dir]
 sync_checkout() {
     local repo="$1"
     local engine_root="${2:-$ENGINE_ROOT}"
-    local name="${repo##*/}"
-    local dir="${3:-$name}"
+    local dir="${3:-${repo##*/}}"
 
     deploy_step "Sync $dir checkout ($repo)" \
-        sudo -n -- /bin/bash -lc \
-        "cd $engine_root && if [ -d ./$dir/.git ]; then node bin cmt ./$dir --switch-repo $repo; else node bin clone $repo && { [ $name = $dir ] || mv ./$name ./$dir; }; fi"
+        sudo -n -- /bin/bash -lc "cd $engine_root && node bin sync ./$dir $repo"
 }
 
 # Stands a synced checkout under the engine root at an exact revision of the history it fetched.
@@ -188,22 +225,6 @@ pin_checkout() {
 # Usage: checkout_revision <dir> [engine-root]
 checkout_revision() {
     sudo -n -- /bin/bash -lc "git -C ${2:-$ENGINE_ROOT}/$1 rev-parse HEAD" | tr -d '\n'
-}
-
-# Whether a tracked path carries uncommitted changes, as `1` or empty.
-#
-# An asset repository is committed only when it actually changed, so this stays outside
-# `deploy_step`: its stdout is the value the caller branches on, and a step's logging would
-# swallow it. The engine root is a parameter rather than an inherited global so a script that
-# drives more than one checkout cannot read the wrong one.
-#
-# Usage: has_changes <path> [engine-root]
-has_changes() {
-    local path="$1"
-    local engine_root="${2:-$ENGINE_ROOT}"
-
-    sudo -n -- /bin/bash -lc \
-        "cd $engine_root && node bin cmt $path --has-changes" | tr -d '\n'
 }
 
 # The in-pod bootstrap, emitted as a `--cmd` payload (comma-separated: `underpost deploy`
@@ -233,6 +254,9 @@ has_changes() {
 # A revision stands the source at that exact commit, so every pod of a release, a restart included,
 # runs the source its client bundle was built from.
 #
+# The bootstrap removes the clone target first: the image ships `/home/dd/engine`, which the CLI of an
+# older image deletes before cloning and the CLI of a newer one refuses to clone over.
+#
 # Usage: pod_bootstrap_cmd <deploy-id> [env] [owner/repo] [revision]
 pod_bootstrap_cmd() {
     local deploy_id="$1"
@@ -250,6 +274,7 @@ rm -rf /home/dd/${name}, "
     fi
 
     printf '%s' "cd /home/dd, \
+rm -rf /home/dd/${name}, \
 underpost clone ${repo}, \
 ${relocate}cd /home/dd/engine, \
 ${revision:+git checkout -q --detach ${revision}, }sudo mkdir -p \$(npm prefix -g)/lib/node_modules \$(npm prefix -g)/bin, \

@@ -9,7 +9,7 @@ How per-deploy SSR views are declared and how they drive the PWA offline lifecyc
 The PWA pipeline has two inputs:
 
 - the deploy `ssr` configuration in `underpost.config.dd-*.js` or `conf.ssr.json`
-- the service worker source in `src/client/sw/core.sw.js`
+- the service worker source in `src/client/sw/CoreServiceWorker.js`
 
 Everything else is generated from those inputs during the client build. Do not hand-edit generated `index.html` files, `sw.js`, or precache output.
 
@@ -90,6 +90,7 @@ ssr: {
 | `head`, `body`       | `string[]` | Per-view head/body overrides. Empty array = inherit the app-level lists.                                                       |
 | `offlineDefault`     | `boolean`  | Marks this view as the **offline fallback**. The SW precaches it on install and serves it when `navigator.onLine === false`.   |
 | `maintenanceDefault` | `boolean`  | Marks this view as the **maintenance fallback**. Precached and served when the origin returns 5xx or is otherwise unreachable. |
+| `headers`            | `object`   | Response headers the runtime sets on the view, such as `Cache-Control` or `X-Robots-Tag`.                                      |
 
 Views with neither flag are SSR-rendered and reachable by URL, but **not** precached. Lazy runtime caching still applies via the SW's navigation strategy.
 
@@ -104,7 +105,7 @@ Some views carry no request-time logic at all, so the gateway answers them and t
 | `path` is a bare status code (`/404`, `/503`) | a status page                 | `<host>/<sub-path>/status-pages/<status>/index.html` |
 | `offlineDefault` or `maintenanceDefault`      | an intercepted static context | `<host>/<sub-path>/<context>/index.html`             |
 
-`<sub-path>` is the client's proxy sub-path with `/` written as `root`, so the `CyberiaPortal` `/404` view on `www.cyberiaonline.com` lands at `www.cyberiaonline.com/root/status-pages/404/index.html`.
+`<sub-path>` is the client's proxy sub-path with `/` written as `root`, so the `CyberiaPortal` `/404` view on `services.cyberiaonline.com` lands at `services.cyberiaonline.com/root/status-pages/404/index.html`.
 
 `deploy --build-manifest` emits one HTTPRoute rule per entry, rewriting the request prefix onto that **directory** — so `/404` resolves the document through `index.html` and `/404/logo.png` resolves the asset beside it, from one rule. `deploy --sync-static` places the documents those rules point at. Both read the same selectors, so a new edge-served view needs nothing beyond its `views[]` entry.
 
@@ -116,7 +117,7 @@ The application runtime does nothing. It returns a bare 404 and no more; no runt
 
 The gateway proxies the site path through `underpost-gateway`, whose Nginx has `proxy_intercept_errors on` and an `error_page` per declared status. When the workload answers 404, Nginx swaps in the declared document from disk. Three things hold as a result:
 
-- the client keeps its own URI — `https://www.cyberiaonline.com/no-exist-page` stays in the address bar
+- the client keeps its own URI — `https://services.cyberiaonline.com/no-exist-page` stays in the address bar
 - the response keeps the workload's status code — a true `404`, not a `200` carrying an error page
 - the document has no size limit, because it is read from disk rather than inlined into the gateway config
 
@@ -130,9 +131,35 @@ If a document is missing from the tree, the request falls through to a shared de
 
 ---
 
+## Search indexing
+
+Each client view of `conf.client.json` states its indexing policy, and the build applies it:
+
+| View field         | Effect                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| none               | Indexable, in the sitemap of its host.                                                     |
+| `"noindex": true`  | `<meta name="robots" content="noindex">` in its document; never in a sitemap.              |
+| `"sitemap": false` | Indexable, but not in the sitemap: a shell whose own path is no page, such as a namespace. |
+
+The canonical URL of a view is the absolute HTTPS URL of the host that builds it, with a trailing
+slash, and the sitemap lists that same URL, so no sitemap entry redirects. A view with both
+`noindex` and `"sitemap": true` stops the build.
+
+An SSR view of `conf.ssr.json` is never in a sitemap. To keep one out of search, set the
+`X-Robots-Tag: noindex` response header in its `headers`.
+
+The build writes `robots.txt` for every client. It disallows the API path of the host and names the
+sitemap when the host has a sitemap view. It never disallows a document: a crawler reads the
+`noindex` of a view only when it can fetch the view.
+
+A file named by its content digest (`<name>.<16 hex>.<ext>`) is served with
+`Cache-Control: public, max-age=31536000, immutable`; every other file revalidates.
+
+---
+
 ## Service worker lifecycle
 
-The SW source lives at `src/client/sw/core.sw.js`. The client build (`src/client-builder/client-build.js`) bundles it via esbuild and writes the [build manifest](../reference/build-manifest.md#service-worker) of the instance before the bundle, as `self.buildManifest`. The worker reads its `serviceWorker` section, resolved from the `views` array:
+The SW source lives at `src/client/sw/CoreServiceWorker.js`. The client build (`src/client-builder/client-build.js`) bundles it via esbuild and writes the [build manifest](../reference/build-manifest.md#service-worker) of the instance before the bundle, as `self.buildManifest`. The worker reads its `serviceWorker` section, resolved from the `views` array:
 
 | Manifest field              | Source                                                                              |
 | --------------------------- | ----------------------------------------------------------------------------------- |
@@ -140,7 +167,19 @@ The SW source lives at `src/client/sw/core.sw.js`. The client build (`src/client
 | `serviceWorker.cachePrefix` | `engine-core-<scope>` where scope is `root` or the path with `/` → `_`.             |
 | `serviceWorker.offline`     | Fully-resolved `index.html` URL of the view flagged `offlineDefault`.               |
 | `serviceWorker.maintenance` | Fully-resolved `index.html` URL of the view flagged `maintenanceDefault`.           |
+| `serviceWorker.origin`      | `https://<host>` of a production build. A development build has none.               |
 | `runtime.basePath`          | The instance's mount path (`/`, `/foo`, …).                                         |
+
+The client registers the worker only on the origin of `serviceWorker.origin`. A host that forwards
+the views of another host with [path routes](../reference/path-routes.md) serves them without that
+worker, and its own scope stays free. A redirect route sends the browser to the origin of the worker
+instead.
+
+A client whose views ship no bundle is a static build. Its `sw.js` is a retiring worker: it
+replaces a worker an earlier build of the same base path installed, deletes the caches of the
+`cachePrefix` of that base path, unregisters itself and reloads each page it took over. A page the old
+worker served from its cache then loads from the network: a static document, or a redirect of the
+host.
 
 ### Runtime strategies
 
@@ -174,6 +213,6 @@ To make the new view a fallback target, set `offlineDefault: true` or `maintenan
 
 ## Updating the service worker
 
-`core.sw.js` is bundled inline by esbuild and shipped as `sw.js` per host instance. After editing it, rebuild the client; the SW takes effect on the next page load (via `skipWaiting + clientsClaim`).
+`CoreServiceWorker.js` is bundled inline by esbuild and shipped as `sw.js` per host instance. After editing it, rebuild the client; the SW takes effect on the next page load (via `skipWaiting + clientsClaim`).
 
 For manual cache invalidation during development, the Settings panel exposes a **clean-cache** action that calls `Worker.resetAndRestart()` — unregistering the SW, dropping all caches, clearing local/session storage, and re-registering.

@@ -11,6 +11,31 @@ import UnderpostGraphify from '../../../src/cli/graphify.js';
 import UnderpostRelease, { buildCliDoc, bumpAuxiliaryFiles } from '../../../src/cli/release.js';
 import UnderpostRepository from '../../../src/cli/repository.js';
 import { Dns } from '../../../src/server/network/dns.js';
+import { isReachable } from '../../../src/server/git/git.js';
+
+// The Git runtime records what the release flows ask of it and answers from a fixture history.
+const gitState = vi.hoisted(() => ({ calls: [], history: [], reachable: true }));
+vi.mock('../../../src/server/git/git.js', async (importOriginal) => {
+  const record = (operation) =>
+    vi.fn((params) => {
+      gitState.calls.push({ operation, ...params });
+      return {};
+    });
+  return {
+    ...(await importOriginal()),
+    cloneRepository: record('clone'),
+    commitChanges: record('commit'),
+    commitHistory: vi.fn(() => gitState.history),
+    discardChanges: record('discard'),
+    headRevision: vi.fn(() => 'f'.repeat(40)),
+    isReachable: vi.fn(() => gitState.reachable),
+    pullRepository: record('pull'),
+    pushRepository: record('push'),
+    remoteUrl: vi.fn(() => 'https://github.com/fixture-org/engine'),
+  };
+});
+const gitOperations = (operation) => gitState.calls.filter((call) => call.operation === operation);
+beforeEach(() => Object.assign(gitState, { calls: [], history: [], reachable: true }));
 
 const DOC_ROOT = 'src/client/public';
 const VERSION_HEADER = /\*\*(?:Current )?[Vv]ersion:\*\* (\d+\.\d+\.\d+)/;
@@ -151,11 +176,13 @@ describe('release pipeline commands', () => {
       return { code: 0, stdout: '', stderr: '', toString: () => '' };
     });
     vi.spyOn(process, 'chdir').mockImplementation((dir) => directories.push(`${dir}`));
+    // File operations join the command log: no real path is touched.
+    vi.spyOn(fs, 'removeSync').mockImplementation((target) => commands.push(`remove ${target}`));
+    vi.spyOn(fs, 'moveSync').mockImplementation((from, to) => commands.push(`move ${from} ${to}`));
     // `release build` and `release deploy` load dd-cron's production env with
     // `override: true`; on a checkout that carries it, that would replace this
     // process's own environment with live deploy credentials.
     vi.spyOn(dotenv, 'config').mockReturnValue({ parsed: {} });
-    vi.spyOn(UnderpostRepository.API, 'clean').mockImplementation(() => undefined);
     vi.spyOn(UnderpostRepository.API, 'initLocalRepo').mockImplementation(() => undefined);
     graph = vi.spyOn(UnderpostGraphify.API, 'build').mockReturnValue({ built: true, version: '0.9.97' });
   });
@@ -186,7 +213,6 @@ describe('release pipeline commands', () => {
       return '';
     });
     vi.spyOn(fs, 'readdirSync').mockReturnValue([]);
-    vi.spyOn(fs, 'removeSync').mockImplementation(() => undefined);
     vi.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined);
     vi.spyOn(Dns, 'getLocalIPv4Address').mockReturnValue('10.0.0.8');
   };
@@ -216,7 +242,6 @@ describe('release pipeline commands', () => {
     it('lists the manifests whose canonical version would move', async () => {
       const manifests = new Map([
         ['package.json', JSON.stringify(PACKAGE)],
-        ['hardhat/package.json', JSON.stringify({ version: '3.2.9' })],
         ['package-lock.json', JSON.stringify({ version: '3.3.0' })],
       ]);
       vi.spyOn(fs, 'readFileSync').mockImplementation((filePath) => {
@@ -267,7 +292,6 @@ describe('release pipeline commands', () => {
         return '';
       });
       vi.spyOn(fs, 'readdirSync').mockReturnValue([]);
-      vi.spyOn(fs, 'removeSync').mockImplementation(() => undefined);
       vi.spyOn(fs, 'writeFileSync').mockImplementation((filePath, value) => writes.set(`${filePath}`, value));
       vi.spyOn(Dns, 'getLocalIPv4Address').mockReturnValue('10.0.0.8');
 
@@ -279,7 +303,7 @@ describe('release pipeline commands', () => {
       });
 
       expect(result).to.include({ from: '3.2.9', to: '3.3.0', dryRun: false });
-      expect(bumpped[0].files).to.include('package.json').and.to.include('hardhat/package-lock.json');
+      expect(bumpped[0].files).to.deep.equal(['package.json', 'package-lock.json']);
       expect(bumpped[0]).to.include({ release: '3.3.0', commit: false, tag: false, push: false, confirm: false });
 
       const templateEnv = writes.get('../pwa-microservices-template/.env.example');
@@ -293,12 +317,17 @@ describe('release pipeline commands', () => {
       expect(templateEnv).to.include('ENABLE_FILE_LOGS=true');
 
       expect(commands).to.include('node bin --help');
-      expect(commands).to.include('node bin cmt --changelog-build');
+      expect(writes.get('CHANGELOG.md')).to.equal('# Changelog\n\nNo changelog entries found.\n');
+      // The template smoke test starts and ends on both engine checkouts without changes.
+      expect(gitOperations('discard').map(({ path, force, root }) => [path, force, root])).to.deep.equal([
+        ['/home/dd/engine', true, true],
+        ['/home/dd/engine/engine-private', true, true],
+        ['/home/dd/engine', true, true],
+        ['/home/dd/engine/engine-private', true, true],
+      ]);
       // The default conf is generated and removed again — leaving it behind
       // makes the next `dd` fan-out build a deploy the release never declared.
-      expect(commands.filter((command) => command.includes('rm -rf ./engine-private/conf/dd-default')).length).to.equal(
-        2,
-      );
+      expect(commands.filter((command) => command === 'remove ./engine-private/conf/dd-default').length).to.equal(2);
       // The code graph describes the release tree: it runs once, after every other regeneration.
       expect(result.graph).to.deep.equal({ built: true, version: '0.9.97' });
       expect(graph).toHaveBeenCalledTimes(1);
@@ -360,20 +389,18 @@ describe('release pipeline commands', () => {
 
     it('replaces the template git directory with the bare clone of the target repository', async () => {
       await UnderpostRelease.API.ci('core', 'fixture message');
-      expect(commands).to.include('rm -rf ./.git');
-      expect(commands).to.include("mv '../engine-core.git' ./.git");
+      expect(commands).to.include('remove ./.git');
+      expect(commands).to.include('move ../engine-core.git ./.git');
       expect(commands).to.include('git config --local core.bare false');
       expect(directories).to.include('/home/dd/pwa-microservices-template');
     });
 
-    it('falls back to the engine changelog message when none is passed', async () => {
-      vi.spyOn(shell, 'exec').mockImplementation((command) => {
-        commands.push(command);
-        const stdout = command.includes('--changelog-msg') ? ' generated message \n' : '';
-        return { code: 0, stdout, stderr: '', toString: () => stdout };
-      });
+    it('falls back to the change summary of the latest engine commit when none is passed', async () => {
+      gitState.history = [
+        { revision: 'a'.repeat(40), shortRevision: 'aaaaaaa', subject: '[cli] generated message', date: '' },
+      ];
       const { triggerCmd } = await UnderpostRelease.API.ci('core');
-      expect(triggerCmd).to.include("git commit -m 'generated message'");
+      expect(triggerCmd).to.include("git commit -m '[cli] generated message\n\nChange-Summary: {");
     });
 
     it('falls back to a generic message when the changelog yields nothing', async () => {
@@ -390,20 +417,20 @@ describe('release pipeline commands', () => {
   describe('pwa', () => {
     it('re-clones, rebuilds and stages the template', async () => {
       const { triggerCmd } = await UnderpostRelease.API.pwa('fixture message');
-      expect(commands).to.include('sudo rm -rf /home/dd/pwa-microservices-template');
+      expect(gitOperations('clone').map(({ destination, replace }) => [destination, replace])).to.deep.equal([
+        ['/home/dd/pwa-microservices-template', true],
+      ]);
       expect(commands).to.include('npm run build:template');
       expect(commands).to.include('git add .');
       expect(triggerCmd).to.include("git commit -m 'fixture message'");
     });
 
-    it('falls back to the engine changelog message', async () => {
-      vi.spyOn(shell, 'exec').mockImplementation((command) => {
-        commands.push(command);
-        const stdout = command.includes('--changelog-msg') ? 'changelog line' : '';
-        return { code: 0, stdout, stderr: '', toString: () => stdout };
-      });
+    it('falls back to the change summary of the latest engine commit', async () => {
+      gitState.history = [
+        { revision: 'b'.repeat(40), shortRevision: 'bbbbbbb', subject: '[cli] changelog line', date: '' },
+      ];
       const { triggerCmd } = await UnderpostRelease.API.pwa();
-      expect(triggerCmd).to.include("git commit -m 'changelog line'");
+      expect(triggerCmd).to.include("git commit -m '[cli] changelog line\n\nChange-Summary: {");
     });
 
     it('falls back to a generic message', async () => {
@@ -420,9 +447,22 @@ describe('release pipeline commands', () => {
         await UnderpostRelease.API.deploy('3.3.0');
         // Host configuration, loaded by domain rather than by a hardcoded env-file path.
         expect(commands).to.include('node bin host load');
-        expect(commands).to.include(`node bin cmt . ci package-pwa-microservices-template 'New release v:3.3.0'`);
-        expect(commands).to.include("node bin push . 'fixture-org/engine'");
-        expect(commands).to.include("cd ./engine-private && node ../bin push . 'fixture-org/engine-private'");
+        expect(gitOperations('commit').map(({ path, message }) => [path, message])).to.deep.equal([
+          [
+            '.',
+            'ci(package-pwa-microservices-template): ⚙️ New release v:3.3.0\n\n' +
+              'Change-Summary: {"schema":1,"source":{},"entries":[{"subject":"New release v:3.3.0"}]}',
+          ],
+          [
+            './engine-private',
+            'ci(package-pwa-microservices-template): ⚙️ CI pipeline changes (GitHub Actions, runners, caching)',
+          ],
+        ]);
+        // Each checkout is pushed to the remote its branch tracks.
+        expect(gitOperations('push')).to.deep.equal([
+          { operation: 'push', path: '.' },
+          { operation: 'push', path: './engine-private' },
+        ]);
       } finally {
         if (previous === undefined) delete process.env.GITHUB_USERNAME;
         else process.env.GITHUB_USERNAME = previous;
@@ -439,16 +479,27 @@ describe('site root provisioning', () => {
 
   beforeEach(() => {
     commands = [];
+    // An unprivileged user: the ownership change of the document root reaches the shell, never the disk.
+    vi.spyOn(process, 'getuid').mockReturnValue(1000);
+    vi.stubEnv('CI', 'true');
     vi.spyOn(shell, 'exec').mockImplementation((command) => {
       commands.push(command);
       return { code: 0, stdout: '', stderr: '', toString: () => '' };
     });
+    vi.spyOn(fs, 'removeSync').mockImplementation(
+      (target) => target.endsWith('.tmp') || commands.push(`remove ${target}`),
+    );
+    vi.spyOn(fs, 'copySync').mockImplementation((from, to) => commands.push(`copy ${from} ${to}`));
+    vi.spyOn(fs, 'moveSync').mockImplementation((from, to) => commands.push(`move ${from} ${to}`));
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
 
   it('separates an unresolved conf reference from an unreachable remote', () => {
-    const isRemote = vi.spyOn(UnderpostRepository.API, 'isRemoteRepo').mockReturnValue(true);
+    vi.mocked(isReachable).mockClear();
     for (const repository of ['', '   ', undefined, null]) {
       const result = UnderpostRepository.API.provisionSiteRoot({
         host: 'www.example.com',
@@ -458,12 +509,12 @@ describe('site root provisioning', () => {
       expect(result).to.deep.equal({ accessible: false, cloned: false });
     }
     // The remote was never consulted: an empty reference is a conf fault, not a GitHub one.
-    expect(isRemote.mock.calls.length).to.equal(0);
+    expect(isReachable).not.toHaveBeenCalled();
     expect(commands).to.deep.equal([]);
   });
 
   it('reports an unreachable remote without touching the document root', () => {
-    vi.spyOn(UnderpostRepository.API, 'isRemoteRepo').mockReturnValue(false);
+    gitState.reachable = false;
     const existsSync = vi.spyOn(fs, 'existsSync').mockReturnValue(false);
     expect(
       UnderpostRepository.API.provisionSiteRoot({
@@ -472,12 +523,11 @@ describe('site root provisioning', () => {
         repository: 'owner/netlify_example',
       }),
     ).to.deep.equal({ accessible: false, cloned: false });
-    expect(commands.some((command) => command.includes('git clone'))).to.equal(false);
+    expect(gitOperations('clone')).to.deep.equal([]);
     existsSync.mockRestore();
   });
 
   it('treats an existing checkout as provisioned and leaves it alone', () => {
-    vi.spyOn(UnderpostRepository.API, 'isRemoteRepo').mockReturnValue(true);
     vi.spyOn(fs, 'existsSync').mockImplementation((target) => `${target}` === '/home/dd/netlify_example/.git');
     expect(
       UnderpostRepository.API.provisionSiteRoot({
@@ -493,7 +543,6 @@ describe('site root provisioning', () => {
   // "provisioned" skipped the clone on every fresh pod and left Apache serving 403 from a
   // directory nothing would ever populate.
   it('provisions a document root the image shipped but never populated', () => {
-    vi.spyOn(UnderpostRepository.API, 'isRemoteRepo').mockReturnValue(true);
     vi.spyOn(fs, 'existsSync').mockImplementation((target) => `${target}` === '/home/dd/netlify_example');
     vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
     expect(
@@ -503,15 +552,18 @@ describe('site root provisioning', () => {
         repository: 'owner/netlify_example',
       }),
     ).to.deep.equal({ accessible: true, cloned: true });
-    expect(commands.some((command) => command.includes('git clone'))).to.equal(true);
+    expect(gitOperations('clone')).to.deep.equal([
+      { operation: 'clone', repository: 'owner/netlify_example', destination: '/home/dd/netlify_example.tmp' },
+    ]);
     // Copied in, not renamed over: the path can be image-provided or a mount point, and a
     // rename onto one fails where a copy succeeds.
-    expect(commands).to.include('sudo cp -a "/home/dd/netlify_example.tmp/." "/home/dd/netlify_example/"');
-    expect(commands.some((command) => command.startsWith('sudo mv'))).to.equal(false);
+    expect(commands).to.include('copy /home/dd/netlify_example.tmp /home/dd/netlify_example');
+    expect(commands.some((command) => command.startsWith('move'))).to.equal(false);
+    // The web server user takes the document root: the only step that needs root.
+    expect(commands.at(-1)).to.match(/find .*\/home\/dd\/netlify_example.* -xdev -exec chown -h \d+:\d+ /);
   });
 
   it('renames the clone into place when the document root does not exist at all', () => {
-    vi.spyOn(UnderpostRepository.API, 'isRemoteRepo').mockReturnValue(true);
     vi.spyOn(fs, 'existsSync').mockReturnValue(false);
     vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
     expect(
@@ -521,7 +573,7 @@ describe('site root provisioning', () => {
         repository: 'owner/netlify_example',
       }),
     ).to.deep.equal({ accessible: true, cloned: true });
-    expect(commands).to.include('sudo mv "/home/dd/netlify_example.tmp" "/home/dd/netlify_example"');
+    expect(commands).to.include('move /home/dd/netlify_example.tmp /home/dd/netlify_example');
   });
 });
 

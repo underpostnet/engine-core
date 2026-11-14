@@ -16,8 +16,10 @@ import {
   deleteUnreferencedFiles,
   documentFileIds,
   fileRefApis,
+  fileRefDefects,
   fileRefFields,
 } from '../../../src/api/file/file.ref.js';
+import { unslicedTree } from '../../support/tree.js';
 
 /** Minimal collection: the helpers only run `find(filter, projection).lean()` and `deleteMany`. */
 const collection = (docs) => ({
@@ -54,6 +56,37 @@ describe('the File reference registry', () => {
   it('reads ids out of documents by field, skipping the ones that hold none', () => {
     const docs = [{ fileId: 'a', upscaleFileId: 'b' }, { fileId: 'a' }, { upscaleFileId: null }];
     expect(documentFileIds(docs, ['fileId', 'upscaleFileId'])).to.deep.equal(['a', 'b']);
+  });
+
+  it('follows a dot path through nested objects, arrays of subdocuments and nested arrays', () => {
+    const docs = [
+      {
+        profile: { fileId: 'p' },
+        items: [{ preview: { fileId: 'i1' } }, { preview: { fileId: 'shared' } }, { preview: null }],
+        gallery: [['g1', 'shared'], ['g2']],
+      },
+      { items: [{ preview: { fileId: 'shared' } }], gallery: [] },
+    ];
+    expect(documentFileIds(docs, ['profile.fileId', 'items.preview.fileId', 'gallery'])).to.deep.equal([
+      'p',
+      'i1',
+      'shared',
+      'g1',
+      'g2',
+    ]);
+  });
+
+  it('registers the nested draft thumbnails of a population', () => {
+    expect(fileRefFields('cyberia-procedural-population')).to.deep.equal([
+      'instanceDrafts.document.thumbnail',
+      'instanceDrafts.base.document.thumbnail',
+    ]);
+  });
+
+  it('matches every model schema: each registered path is a File reference, each File reference is registered', async () => {
+    // A sliced tree ships some of the registered APIs.
+    const defects = (await fileRefDefects()).filter((defect) => unslicedTree || !defect.includes(': no api model '));
+    expect(defects).to.deep.equal([]);
   });
 });
 

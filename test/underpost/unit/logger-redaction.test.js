@@ -38,8 +38,10 @@ describe('central logger redaction', () => {
       'authorization required for this route',
       'api_secret mismatch',
       'Target pod: dd-cyberia-production-blue-5b7c67bb8f-kwhz7 | Pod status: Running',
+      'or pass --discard-live-changes v4-0-0-5de3069-a561dbeb --discard-reason <why>',
     ])
       expect(redactSensitiveText(kept), kept).to.equal(kept);
+    expect(redactSensitiveText('pass Xk9-mQ2_vL8pZr4')).to.equal('pass [REDACTED]');
   });
 
   it('reaches a credential that a non-sensitive word precedes', () => {
@@ -110,7 +112,7 @@ describe('central logger redaction', () => {
 
   it('filters the authorization code and state of an OAuth redirect from a request line', () => {
     const line =
-      '127.0.0.1 GET www.cyberiaonline.com/api/v1/google-auth/callback?state=9f2c41d7&code=4/0AeanS0aXyZ&scope=email 302';
+      '127.0.0.1 GET services.cyberiaonline.com/api/v1/google-auth/callback?state=9f2c41d7&code=4/0AeanS0aXyZ&scope=email 302';
     const output = renderLog(line);
     expect(output).to.not.include('9f2c41d7');
     expect(output).to.not.include('4/0AeanS0aXyZ');
